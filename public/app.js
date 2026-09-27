@@ -805,7 +805,7 @@ function renderTeam() {
     </div>
     <div class="panel" id="staffPanel">
       <h2>Staff</h2>
-      <p class="muted">To add a new person: Supabase → Authentication → Users → Add user, with email <code>name@${esc(LOGIN_DOMAIN)}</code> (e.g. <code>ana@${esc(LOGIN_DOMAIN)}</code>) and “Auto Confirm User” ticked. They sign in here with just their name.</p>
+      <p class="muted">Everyone with a login is listed here. You can edit their name and choose who is an admin.</p>
       ${staff.map(p => `<div class="staff-row" data-id="${p.id}">
         <input value="${esc(p.display_name)}" aria-label="Display name" data-name>
         <label class="switch" title="Admin"><input type="checkbox" data-admin ${p.is_admin ? 'checked' : ''} ${p.id === S.me.id ? 'disabled' : ''}><span class="track"></span> Admin</label>
