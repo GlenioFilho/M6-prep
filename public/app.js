@@ -309,7 +309,8 @@ function renderTabs() {
   $('#onlyMineWrap').hidden = S.tab !== 'in_prep';
   $('#purgeBtn').hidden = S.tab !== 'delivered';
   const fab = $('#fab');
-  fab.hidden = S.tab === 'delivered';
+  // Adding stock and recording sales are admin-only (also enforced in the database)
+  fab.hidden = S.tab === 'delivered' || !isAdmin();
   fab.innerHTML = `${ICON.plus}<span>${S.tab === 'stock' ? 'New stock' : 'Sold'}</span>`;
 }
 
@@ -389,7 +390,7 @@ function cardHTML(v) {
   let actions = '';
   if (v.status === 'stock') {
     actions = `<button class="btn small ghost" data-act="edit">Edit</button>
-      <button class="btn small primary" data-act="sell">Mark sold</button>`;
+      ${isAdmin() ? '<button class="btn small primary" data-act="sell">Mark sold</button>' : ''}`;
   } else if (v.status === 'in_prep') {
     actions = `<button class="btn small ghost" data-act="edit">Edit</button>
       <button class="btn small accent" data-act="deliver">${ICON.check} Delivered</button>`;
@@ -437,7 +438,7 @@ async function onListClick(e) {
 
   if (act === 'svc') return cycleService(v, btn.dataset.key, btn);
   if (act === 'edit') return openVehicleForm({ vehicle: v });
-  if (act === 'sell') return openVehicleForm({ vehicle: v, convert: true });
+  if (act === 'sell') return isAdmin() && openVehicleForm({ vehicle: v, convert: true });
   if (act === 'photo') return openPhoto(v);
 
   if (act === 'deliver') {

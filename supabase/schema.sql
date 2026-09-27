@@ -305,12 +305,14 @@ create policy "admin remove team" on public.team_members
 
 drop policy if exists "staff read vehicles"   on public.vehicles;
 drop policy if exists "staff add vehicles"    on public.vehicles;
+drop policy if exists "admin add vehicles"    on public.vehicles;
 drop policy if exists "staff update vehicles" on public.vehicles;
 drop policy if exists "admin delete vehicles" on public.vehicles;
 create policy "staff read vehicles" on public.vehicles
   for select to authenticated using (public.is_staff());
-create policy "staff add vehicles" on public.vehicles
-  for insert to authenticated with check (public.is_staff());
+-- Adding vehicles and marking them sold is admin-only (see 003_*.sql)
+create policy "admin add vehicles" on public.vehicles
+  for insert to authenticated with check (public.is_admin());
 create policy "staff update vehicles" on public.vehicles
   for update to authenticated using (public.is_staff()) with check (public.is_staff());
 create policy "admin delete vehicles" on public.vehicles
