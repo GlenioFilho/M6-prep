@@ -262,7 +262,7 @@ Setup instructions are in `README.md`.
   survives the 30-day purge, which would otherwise erase last month's commission data.
 - Delivery day/time columns are `delivery_day` / `delivery_time`, not `day` / `time`.
 - **Live at https://m6motors.netlify.app** — Netlify site id
-  `529c7295-b563-4dd3-9600-b38d744c191c` (account formlabd@gmail.com). To redeploy,
+  `529c7295-b563-4dd3-9600-b38d744c191c`. To redeploy,
   call the Netlify MCP `deploy-site` with that id and run the `npx @netlify/mcp`
   command it returns from `C:\M6system` (Node is installed; refresh PATH first).
   Bump `?v=` on `styles.css`/`app.js` in `index.html` before each deploy.
