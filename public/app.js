@@ -355,7 +355,7 @@ function serviceHTML(v, key) {
   if (state === 'done') sub = `Done · ${nameOf(by)} · ${fmtDate(v[`${key}_done_at`], false)}`;
   const title = allowed ? `Tap to change (${state} → ${NEXT_STATE[state]})` : `Only ${whoCanMark(key)} can mark ${s.label}`;
   return `<button type="button" class="svc ${state}${allowed ? '' : ' locked'}" data-act="svc" data-key="${key}" title="${esc(title)}">
-    <strong>${state === 'done' ? ICON.check : ''}${esc(s.label)}${s.commission ? '<span class="coin" title="Commission">€</span>' : ''}${allowed ? '' : ICON.lock}</strong>
+    <strong>${state === 'done' ? ICON.check : ''}${esc(s.label)}${allowed ? '' : ICON.lock}</strong>
     <small>${esc(sub)}</small>
   </button>`;
 }

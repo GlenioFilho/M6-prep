@@ -211,7 +211,6 @@ main, .page { max-width: 760px; margin: 0 auto; }
 .svc.done  { background: var(--done-bg);  color: var(--done-fg);  border-color: var(--done-bd); }
 .svc.locked { cursor: not-allowed; }
 .svc svg { width: 13px; height: 13px; flex: none; }
-.svc .coin { font-size: 10px; font-weight: 700; padding: 0 4px; border-radius: 4px; background: rgba(0,0,0,.08); }
 .svc.armed { outline: 2px solid var(--urgent); }
 
 .card-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
