@@ -1,3 +1,6 @@
+# Secrets (VAPID private key etc.) — never commit
+.secrets/
+
 # Local tooling
 .claude/
 .netlify/

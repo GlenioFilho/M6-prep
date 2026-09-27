@@ -1,5 +1,5 @@
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
-import { SUPABASE_URL, SUPABASE_ANON_KEY, LOGIN_DOMAIN } from './config.js';
+import { SUPABASE_URL, SUPABASE_ANON_KEY, LOGIN_DOMAIN, VAPID_PUBLIC_KEY } from './config.js';
 
 // ---------------------------------------------------------------------
 // Constants
@@ -35,6 +35,7 @@ const ICON = {
   lock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>',
   check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
   camera: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5A1.5 1.5 0 0 1 4.5 7h2.3l1.6-2.2h7.2L17.2 7h2.3A1.5 1.5 0 0 1 21 8.5v10a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"/><circle cx="12" cy="13" r="3.8"/></svg>',
+  bell: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>',
   close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
 };
 
@@ -732,6 +733,10 @@ function openAccount() {
       <button type="submit" class="btn primary">Save</button>
     </div>
   </form>
+  <div class="form" style="margin-top:18px">
+    <div class="section-label">Notifications</div>
+    <div id="pushBox" class="push-box"><p class="muted">Checking…</p></div>
+  </div>
   <form class="form" id="pwChange" style="margin-top:18px">
     <div class="section-label">Change password</div>
     <label>New password<input name="pw" type="password" minlength="6" autocomplete="new-password" required></label>
@@ -739,7 +744,13 @@ function openAccount() {
     <p class="hint" style="margin:0">At least 6 characters.</p>
     <div class="sheet-actions"><button type="submit" class="btn">Change password</button></div>
   </form>`);
-  $('#signOut', sheet).onclick = async () => { closeSheet(); await sb.auth.signOut(); };
+  $('#signOut', sheet).onclick = async () => {
+    closeSheet();
+    // Stop notifications on this phone for the person signing out
+    try { await disablePush(); } catch {}
+    await sb.auth.signOut();
+  };
+  renderPushBox();
   $('#pwChange', sheet).onsubmit = async e => {
     e.preventDefault();
     const { pw, pw2 } = e.target.elements;
@@ -1053,6 +1064,131 @@ function exportListCsv() {
 // ---------------------------------------------------------------------
 // Auth & boot
 // ---------------------------------------------------------------------
+// ---------------------------------------------------------------------
+// Push notifications ("new car in stock")
+// ---------------------------------------------------------------------
+const PUSH_BANNER_KEY = 'm6.pushBanner';
+let swReg = null;
+
+const isIos = () => /iphone|ipad|ipod/i.test(navigator.userAgent)
+  || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const isInstalled = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+
+async function registerSw() {
+  if (!('serviceWorker' in navigator)) return null;
+  try { swReg = await navigator.serviceWorker.register('sw.js'); } catch { swReg = null; }
+  return swReg;
+}
+
+function base64UrlToBytes(b64) {
+  const padded = (b64 + '='.repeat((4 - b64.length % 4) % 4)).replace(/-/g, '+').replace(/_/g, '/');
+  return Uint8Array.from(atob(padded), c => c.charCodeAt(0));
+}
+
+async function currentPushSubscription() {
+  const reg = swReg || await navigator.serviceWorker?.getRegistration();
+  return reg?.pushManager ? reg.pushManager.getSubscription() : null;
+}
+
+// 'needs-install' | 'unsupported' | 'blocked' | 'on' | 'off'
+async function pushStatus() {
+  const supported = 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  if (isIos() && !isInstalled()) return 'needs-install';
+  if (!supported || !VAPID_PUBLIC_KEY) return 'unsupported';
+  if (Notification.permission === 'denied') return 'blocked';
+  if (Notification.permission !== 'granted') return 'off';
+  return (await currentPushSubscription()) ? 'on' : 'off';
+}
+
+async function savePushSubscription(sub) {
+  const { endpoint, keys } = sub.toJSON();
+  const { error } = await sb.from('push_subscriptions')
+    .upsert({ endpoint, p256dh: keys.p256dh, auth: keys.auth, user_id: S.me.id });
+  if (error) throw error;
+}
+
+async function enablePush() {
+  // Must be the first await after the tap: iPhone only asks from a user gesture.
+  const permission = await Notification.requestPermission();
+  if (permission !== 'granted') throw new Error('Notifications were not allowed on this phone.');
+  const reg = swReg || await registerSw();
+  if (!reg) throw new Error('This browser can’t receive notifications.');
+  const sub = await reg.pushManager.getSubscription()
+    || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: base64UrlToBytes(VAPID_PUBLIC_KEY) });
+  try {
+    await savePushSubscription(sub);
+  } catch (err) {
+    await sub.unsubscribe();
+    throw err;
+  }
+}
+
+async function disablePush() {
+  const sub = await currentPushSubscription();
+  if (!sub) return;
+  await sb.from('push_subscriptions').delete().eq('endpoint', sub.endpoint);
+  await sub.unsubscribe();
+}
+
+async function turnOnPush() {
+  try {
+    await enablePush();
+    toast('Notifications on — you’ll hear about new stock');
+  } catch (err) {
+    toast(errorText(err), { error: true });
+  }
+  renderPushBox();
+  renderPushBanner();
+}
+
+// Re-save this phone's subscription after login, in case it was lost.
+async function syncPush() {
+  try {
+    if (await pushStatus() === 'on') await savePushSubscription(await currentPushSubscription());
+  } catch {}
+  renderPushBanner();
+}
+
+const PUSH_TEXT = {
+  on: 'This phone gets a notification when a car is added to stock.',
+  off: 'Get a notification on this phone when a car is added to stock.',
+  'needs-install': 'On iPhone, notifications only work from the app on your home screen: in Safari tap Share → Add to Home Screen, then open M6 Prep from the new icon and turn them on here.',
+  blocked: 'Notifications are blocked for this app. Allow them in your phone’s settings, then come back here.',
+  unsupported: 'This browser can’t receive notifications. Try Chrome on Android or the home-screen app on iPhone.',
+};
+
+async function renderPushBox() {
+  const box = $('#pushBox');
+  if (!box) return;
+  const status = await pushStatus();
+  const button = status === 'on'
+    ? '<button type="button" class="btn ghost" data-push="off">Turn off</button>'
+    : status === 'off' ? `<button type="button" class="btn primary" data-push="on">${ICON.bell} Enable notifications</button>` : '';
+  box.innerHTML = `<p class="${status === 'on' ? '' : 'muted'}">${status === 'on' ? '✅ ' : ''}${esc(PUSH_TEXT[status])}</p>${button}`;
+  box.onclick = async e => {
+    const b = e.target.closest('[data-push]');
+    if (!b) return;
+    b.disabled = true;
+    if (b.dataset.push === 'on') return turnOnPush();
+    try { await disablePush(); toast('Notifications off'); } catch (err) { toast(errorText(err), { error: true }); }
+    renderPushBox();
+    renderPushBanner();
+  };
+}
+
+async function renderPushBanner() {
+  const banner = $('#pushBanner');
+  const status = await pushStatus();
+  const show = (status === 'off' || status === 'needs-install') && store.get(PUSH_BANNER_KEY) !== 'dismissed';
+  banner.hidden = !show;
+  banner.dataset.status = status;
+  if (!show) return;
+  banner.innerHTML = `<span>${ICON.bell}</span>
+    <p>Get a notification when a new car arrives in stock.</p>
+    <button type="button" class="btn small primary" data-enable>${status === 'off' ? 'Turn on' : 'How?'}</button>
+    <button type="button" class="icon-btn" data-dismiss aria-label="Dismiss">${ICON.close}</button>`;
+}
+
 function switchTab(tab) {
   S.tab = tab;
   try { localStorage.setItem('m6.tab', tab); } catch {}
@@ -1095,6 +1231,7 @@ async function onSessionChange() {
   }
   renderAll();
   subscribe();
+  syncPush();
 }
 
 function wireUi() {
@@ -1103,7 +1240,27 @@ function wireUi() {
   $('#reportBtn').innerHTML = ICON.report;
 
   try { S.tab = localStorage.getItem('m6.tab') || S.tab; } catch {}
+  // A tapped notification opens the app on its tab (e.g. ?tab=stock)
+  const linkTab = new URLSearchParams(location.search).get('tab');
+  if (TAB_TITLE[linkTab]) S.tab = linkTab;
   if (!TAB_TITLE[S.tab]) S.tab = 'in_prep';
+  navigator.serviceWorker?.addEventListener('message', e => {
+    if (e.data?.type !== 'open') return;
+    const tab = new URL(e.data.url).searchParams.get('tab');
+    if (TAB_TITLE[tab]) { setView('main'); switchTab(tab); }
+  });
+
+  $('#pushBanner').addEventListener('click', async e => {
+    if (e.target.closest('[data-dismiss]')) {
+      store.set(PUSH_BANNER_KEY, 'dismissed');
+      $('#pushBanner').hidden = true;
+    } else if (e.target.closest('[data-enable]')) {
+      // Status is read from the rendered banner so the permission prompt
+      // runs straight from the tap (iPhone requires that).
+      if ($('#pushBanner').dataset.status === 'off') turnOnPush();
+      else openAccount();
+    }
+  });
 
   $('#loginForm').addEventListener('submit', async e => {
     e.preventDefault();
@@ -1157,6 +1314,7 @@ function wireUi() {
 
 function boot() {
   if (!sb) { showScreen('setup'); return; }
+  registerSw();
   wireUi();
   sb.auth.onAuthStateChange((event, session) => {
     const changed = (session?.user?.id ?? null) !== (S.session?.user?.id ?? null) || event === 'INITIAL_SESSION';

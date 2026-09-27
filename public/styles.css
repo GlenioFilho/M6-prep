@@ -336,6 +336,19 @@ table.compact th:last-child, table.compact td:last-child { text-align: left; }
   details.car-list > summary::-webkit-details-marker { display: none; }
 }
 
+/* ---------- Notifications ---------- */
+.push-banner {
+  display: flex; align-items: center; gap: 10px;
+  margin: 12px 16px 0; padding: 10px 8px 10px 12px; border-radius: 12px;
+  background: var(--doing-bg); border: 1px solid var(--doing-bd); color: var(--doing-fg);
+}
+.push-banner > span svg { width: 20px; height: 20px; display: block; }
+.push-banner p { flex: 1; margin: 0; font-size: 14px; font-weight: 500; }
+.push-banner .icon-btn { width: 32px; height: 32px; }
+.push-banner .icon-btn svg { width: 16px; height: 16px; }
+.push-box { display: grid; gap: 10px; justify-items: start; }
+.push-box p { margin: 0; font-size: 14px; }
+
 /* ---------- Toasts ---------- */
 .toasts {
   position: fixed; left: 50%; transform: translateX(-50%); bottom: max(84px, calc(env(safe-area-inset-bottom) + 84px));
