@@ -274,7 +274,7 @@ Setup instructions are in `README.md`.
   maths and no "commission" labels, at the owner's request.
 - **Database migrations** run by hand in the Supabase SQL Editor, in order:
   `schema.sql`, `002_push_notifications.sql`, `003_admin_only_stock_and_sales.sql`,
-  `004_delivery_date.sql`. Ship UI that needs a new column only after its migration ran.
+  `004_delivery_date.sql`, `005_loan_and_dent.sql`. Ship UI that needs a new column only after its migration ran.
 - **Push notifications** (new stock only, creator excluded): `public/sw.js` +
   `push_subscriptions`; a trigger calls the Edge Function deployed as
   **`swift-responder`** (code in `supabase/functions/notify/`), which needs the
@@ -284,8 +284,14 @@ Setup instructions are in `README.md`.
 - **Admin-only:** adding vehicles and moving them in/out of stock (mark sold) —
   hidden in the UI and enforced by the `admin add vehicles` policy and the
   `vehicles_stock_guard` trigger.
-- **To deliver tab** (`schedule`): the in_prep cars grouped by `delivery_date`
-  (Overdue / Today / Tomorrow / later / no date) with Ready / Waiting status; tapping
-  opens the card in In prep. Old free-text `delivery_day` is shown as a fallback.
+- **Tabs are views, not the DB status** (`tabOf()` in app.js): Delivered →
+  Loan (`hold='loan'`) → Dent (`hold='dent'`) → **In prep** = any selected service
+  in `doing` → otherwise **Sold** (status `in_prep`, i.e. sold not delivered) or
+  **Stock**. Tapping a service moves the car between tabs automatically.
+- **Sold tab:** full cards grouped by `delivery_date` (Overdue / Today / Tomorrow /
+  later / no date) with a printable daily job sheet (☐ per pending service). Dent
+  and Loan tabs also print lists. Any staff can send a car to Loan/Dent
+  (`005_loan_and_dent.sql`); Returned / Dent done clears the hold.
+- Old free-text `delivery_day` is shown as a fallback when there's no `delivery_date`.
 - Open decisions (§10) were left as in the prototype: free-text fields, Full Valet
   as the only commission service, the English "Polish" label, no mechanic accounts.
