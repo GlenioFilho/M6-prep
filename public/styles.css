@@ -121,6 +121,17 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--brand); out
 .brand { flex: 1; min-width: 0; display: grid; line-height: 1.15; }
 .brand strong { font-size: 16px; }
 .brand span { font-size: 12px; opacity: .7; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.clock { flex: none; display: grid; justify-items: end; line-height: 1.15; margin-right: 6px; font-variant-numeric: tabular-nums; }
+.clock strong { font-size: 17px; }
+.clock span { font-size: 12px; opacity: .7; white-space: nowrap; }
+@media (max-width: 420px) {
+  .clock { margin-right: 0; }
+  .clock strong { font-size: 14px; }
+  .clock span { font-size: 10.5px; }
+  .brand span#viewTitle { display: none; }
+  .brand strong { font-size: 14.5px; white-space: nowrap; }
+  .topbar { gap: 6px; }
+}
 .avatar {
   width: 36px; height: 36px; flex: none; border-radius: 50%; border: 0; cursor: pointer;
   background: #2b2d33; color: #fff; font-weight: 700; font-size: 13px;

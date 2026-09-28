@@ -1474,8 +1474,17 @@ function wireUi() {
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#sheetBackdrop').hidden) closeSheet(); });
 }
 
+// Header clock: "14:05" over "Mon 28 Sept"
+function tickClock() {
+  const now = new Date();
+  $('#clock strong').textContent = now.toLocaleTimeString('en-IE', { hour: '2-digit', minute: '2-digit' });
+  $('#clock span').textContent = now.toLocaleDateString('en-IE', { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
 function boot() {
   if (!sb) { showScreen('setup'); return; }
+  tickClock();
+  setInterval(tickClock, 15000);
   registerSw();
   wireUi();
   sb.auth.onAuthStateChange((event, session) => {
