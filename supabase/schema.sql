@@ -77,24 +77,11 @@ language sql immutable as $$
   select array['first', 'full', 'polish', 'decrome', 'windscreen', 'repair']
 $$;
 
--- Can the current user change the state of a service?
--- Admins: always. First Clean / Full Valet / Polish: members of that team.
--- Everything else (Dechrome, Windscreen, Repair): any staff member.
+-- Can the current user change the state of a service? Any staff member
+-- (see 008_*.sql); who/when is still recorded by vehicles_guard.
 create or replace function public.can_mark(service text) returns boolean
 language sql stable security definer set search_path = public as $$
-  select public.is_staff() and (
-    public.is_admin()
-    or service not in ('first', 'full', 'polish')
-    or exists (
-      select 1 from team_members t
-      where t.user_id = auth.uid()
-        and t.role = case service
-                       when 'first'  then 'firstClean'
-                       when 'full'   then 'fullValet'
-                       when 'polish' then 'polish'
-                     end
-    )
-  )
+  select public.is_staff()
 $$;
 
 -- ---------------------------------------------------------------------
@@ -149,7 +136,8 @@ create table if not exists public.vehicles (
   loan_since       timestamptz,
   loan_due         date,
   dent_notes       text not null default '',
-  dent_since       timestamptz,
+  dent_since       timestamptz,   -- set = on the Dent list (car stays in its tab)
+  dent_date        date,          -- day of the dent service
   stock_status     text not null default 'in_stock' check (stock_status in ('in_stock', 'due_in')),
   seller           text not null default '',
   vrt_nct          text not null default '',

@@ -19,11 +19,12 @@ const SERVICES = [
 ];
 const SERVICE = Object.fromEntries(SERVICES.map(s => [s.key, s]));
 const ROLES = SERVICES.filter(s => s.role);
-const DEFAULT_SERVICES = ['first', 'full'];
+// New vehicles start with no services: whoever adds the car picks what it needs.
+const DEFAULT_SERVICES = [];
 const NEXT_STATE = { pending: 'doing', doing: 'done', done: 'pending' };
 
 const COLOURS = [
-  ['White', '#ffffff'], ['Black', '#111111'], ['Grey', '#8a8f98'], ['Silver', '#c9ccd1'],
+  ['White', '#ffffff'], ['Black', '#111111'], ['Grey', '#8a8f98'], ['Brooklyn Grey', '#8c949b'], ['Silver', '#c9ccd1'],
   ['Blue', '#2f5fd0'], ['Red', '#c9302c'], ['Green', '#2e8b57'], ['Beige', '#d8c8a8'],
   ['Brown', '#7a4e2d'], ['Orange', '#f08a24'], ['Yellow', '#f2c230'],
 ];
@@ -165,7 +166,6 @@ const S = {
   tab: 'stock',
   view: 'main',
   search: '',
-  onlyMine: false,
   channel: null,
 };
 
@@ -197,17 +197,10 @@ const sb = configured
 const isAdmin = () => !!S.me?.is_admin;
 const nameOf = id => S.profiles.get(id)?.display_name || 'Someone';
 
-function canMark(key) {
-  if (!S.me) return false;
-  if (isAdmin() || !SERVICE[key].role) return true;
-  return S.team[SERVICE[key].role]?.has(S.me.id) ?? false;
-}
-
-function whoCanMark(key) {
-  const role = SERVICE[key].role;
-  if (!role) return 'Anyone';
-  const names = [...S.team[role]].map(nameOf);
-  return names.length ? `${names.join(', ')} (or an admin)` : 'Admins only (nobody assigned yet)';
+// Every service is open to everyone on staff (enforced in the database too,
+// see 008_*.sql); who did it and when is still recorded for the pay report.
+function canMark() {
+  return !!S.me;
 }
 
 // ---------------------------------------------------------------------
@@ -325,29 +318,34 @@ function renderAll() {
 // ---------------------------------------------------------------------
 // Main list
 // ---------------------------------------------------------------------
-// Which tab a car shows in. Delivered is history; Loan and Dent take the car
-// out of the normal flow until it comes back; a car with someone working on
-// it (any service "doing") is In prep; otherwise it's Sold or Stock.
+// Which tab a car shows in. Delivered is history; Loan takes the car out of
+// the normal flow until it comes back; a car with someone working on it (any
+// service "doing") is In prep; otherwise it's Sold or Stock.
+// Dent is NOT a place: it's a written to-do list (dent_since set) — the car
+// stays in its own tab and also appears on the Dent list.
 const isWorking = v => v.services.some(k => v[`${k}_state`] === 'doing');
+const inDent = v => !!v.dent_since && v.status !== 'delivered';
 
 function tabOf(v) {
   if (v.status === 'delivered') return 'delivered';
   if (v.hold === 'loan') return 'loan';
-  if (v.hold === 'dent') return 'dent';
   if (isWorking(v)) return 'in_prep';
   return v.status === 'in_prep' ? 'sold' : 'stock';
 }
 
 const isSold = v => v.status === 'in_prep';
+const onTab = (v, tab) => (tab === 'dent' ? inDent(v) : tabOf(v) === tab);
 
 function renderTabs() {
   const counts = Object.fromEntries(Object.keys(TAB_TITLE).map(t => [t, 0]));
-  for (const v of S.vehicles.values()) counts[tabOf(v)]++;
+  for (const v of S.vehicles.values()) {
+    counts[tabOf(v)]++;
+    if (inDent(v)) counts.dent++;
+  }
   for (const b of $$('.tabs button')) {
     b.setAttribute('aria-selected', b.dataset.tab === S.tab);
     $('.count', b).textContent = counts[b.dataset.tab];
   }
-  $('#onlyMineWrap').hidden = !['stock', 'sold'].includes(S.tab);
   $('#purgeBtn').hidden = S.tab !== 'delivered';
   const print = $('#printBtn');
   print.hidden = !['sold', 'dent', 'loan'].includes(S.tab);
@@ -358,18 +356,13 @@ function renderTabs() {
   fab.innerHTML = `${ICON.plus}<span>${S.tab === 'stock' ? 'New stock' : 'Sold'}</span>`;
 }
 
-function pendingForMe(v) {
-  return v.services.some(k => v[`${k}_state`] !== 'done' && canMark(k));
-}
-
 function visibleVehicles() {
   const q = norm(S.search);
-  let list = [...S.vehicles.values()].filter(v => tabOf(v) === S.tab);
+  let list = [...S.vehicles.values()].filter(v => onTab(v, S.tab));
   if (q) {
     list = list.filter(v => [v.reg_ie, v.reg_imp, v.make, v.model, v.seller, v.loan_to, `${v.make}${v.model}`]
       .some(f => norm(f).includes(q)));
   }
-  if (['stock', 'sold'].includes(S.tab) && S.onlyMine) list = list.filter(pendingForMe);
 
   const t = x => new Date(x ?? 0).getTime();
   const due = d => d ?? '9999-12-31';
@@ -379,7 +372,7 @@ function visibleVehicles() {
     in_prep: (a, b) => (isSold(b) - isSold(a)) || (b.urgent - a.urgent) || due(a.delivery_date).localeCompare(due(b.delivery_date)),
     sold: (a, b) => due(a.delivery_date).localeCompare(due(b.delivery_date)) || (b.urgent - a.urgent)
       || clean(a.delivery_time).localeCompare(clean(b.delivery_time)),
-    dent: (a, b) => t(a.dent_since) - t(b.dent_since),
+    dent: (a, b) => due(a.dent_date).localeCompare(due(b.dent_date)) || (isSold(b) - isSold(a)) || (t(a.dent_since) - t(b.dent_since)),
     loan: (a, b) => due(a.loan_due).localeCompare(due(b.loan_due)),
     delivered: (a, b) => t(b.delivered_at) - t(a.delivered_at),
   };
@@ -399,18 +392,16 @@ function colourHTML(color) {
   return `<span class="colour">${hex ? `<span class="dot" style="background:${hex}"></span>` : ''}${esc(color)}</span>`;
 }
 
+// One bubble per service: grey = to do, amber = someone is on it, green ✓ = done.
 function serviceHTML(v, key) {
   const s = SERVICE[key];
   const state = v[`${key}_state`];
   const by = v[`${key}_by`];
-  const allowed = canMark(key);
-  let sub = 'Pending';
-  if (state === 'doing') sub = `Doing · ${nameOf(by)}`;
-  if (state === 'done') sub = `Done · ${nameOf(by)} · ${fmtDate(v[`${key}_done_at`], false)}`;
-  const title = allowed ? `Tap to change (${state} → ${NEXT_STATE[state]})` : `Only ${whoCanMark(key)} can mark ${s.label}`;
-  return `<button type="button" class="svc ${state}${allowed ? '' : ' locked'}" data-act="svc" data-key="${key}" title="${esc(title)}">
-    <strong>${state === 'done' ? ICON.check : ''}${esc(s.label)}${allowed ? '' : ICON.lock}</strong>
-    <small>${esc(sub)}</small>
+  const who = state === 'doing' ? nameOf(by) : state === 'done' ? `${nameOf(by)} · ${fmtDate(v[`${key}_done_at`], false)}` : '';
+  const hint = { pending: 'Tap to start', doing: 'Tap when finished', done: 'Done — tap twice to undo' }[state];
+  const mark = { pending: '<span class="ring"></span>', doing: '<span class="ring half"></span>', done: ICON.check }[state];
+  return `<button type="button" class="svc ${state}" data-act="svc" data-key="${key}" title="${esc(`${s.label} — ${hint}`)}">
+    ${mark}<span class="svc-text"><strong>${esc(s.label)}</strong>${who ? `<small>${esc(who)}</small>` : ''}</span>
   </button>`;
 }
 
@@ -429,7 +420,7 @@ function cardHTML(v) {
     chips.push(`<span class="chip hold">ON LOAN</span>`);
     if (v.loan_due) chips.push(`<span class="chip${late ? ' urgent' : ''}">${late ? 'OVERDUE · ' : ''}Back ${esc(dayName(v.loan_due))}</span>`);
   }
-  if (tab === 'dent') chips.push('<span class="chip hold">DENT</span>');
+  if (inDent(v)) chips.push(`<span class="chip hold">DENT${v.dent_date ? ` · ${esc(dayName(v.dent_date))}` : ''}</span>`);
   if (sold && tab !== 'sold') chips.push('<span class="chip sold">SOLD</span>');
   if (sold && v.urgent) chips.push('<span class="chip urgent">URGENT</span>');
   if (sold) {
@@ -446,8 +437,7 @@ function cardHTML(v) {
     tab === 'loan' ? detailRow('Customer', v.loan_to) : '',
     tab === 'loan' ? detailRow('Phone', phone, `<a href="tel:${esc(phone.replace(/[^\d+]/g, ''))}">${esc(phone)}</a>`) : '',
     tab === 'loan' ? detailRow('Out since', v.loan_since && fmtDate(v.loan_since)) : '',
-    tab === 'dent' ? detailRow('To fix', v.dent_notes) : '',
-    tab === 'dent' ? detailRow('Since', v.dent_since && fmtDate(v.dent_since)) : '',
+    inDent(v) ? detailRow('Dent', v.dent_notes || 'On the dent list') : '',
     sold ? detailRow('Salesperson', v.seller) : '',
     sold ? detailRow('VRT / NCT', v.vrt_nct) : '',
     sold ? detailRow('Mechanical', v.mechanical_notes) : '',
@@ -455,12 +445,12 @@ function cardHTML(v) {
   ].join('');
 
   const b = (act, label, cls = 'ghost') => `<button class="btn small ${cls}" data-act="${act}">${label}</button>`;
+  const dentLabel = inDent(v) ? 'Dent ✓' : 'Dent';
   let actions;
   if (tab === 'delivered') actions = b('reopen', 'Reopen');
   else if (tab === 'loan') actions = b('edit', 'Edit') + b('loan', 'Loan details') + b('release', `${ICON.check} Returned`, 'accent');
-  else if (tab === 'dent') actions = b('edit', 'Edit') + b('dent', 'Dent details') + b('release', `${ICON.check} Dent done`, 'accent');
-  else if (sold) actions = b('edit', 'Edit') + b('dent', 'Dent') + b('deliver', `${ICON.check} Delivered`, 'accent');
-  else actions = b('edit', 'Edit') + b('loan', 'Loan') + b('dent', 'Dent') + (isAdmin() ? b('sell', 'Mark sold', 'primary') : '');
+  else if (sold) actions = b('edit', 'Edit') + b('dent', dentLabel) + b('deliver', `${ICON.check} Delivered`, 'accent');
+  else actions = b('edit', 'Edit') + b('loan', 'Loan') + b('dent', dentLabel) + (isAdmin() ? b('sell', 'Mark sold', 'primary') : '');
   const remove = isAdmin() && v.status !== 'delivered' ? `${b('remove', 'Remove', 'ghost danger')}<span class="spacer"></span>` : '';
 
   const flagged = (sold && v.urgent) || (tab === 'loan' && v.loan_due && dayDiff(v.loan_due) < 0);
@@ -505,11 +495,55 @@ function soldHTML(list) {
   </section>`).join('');
 }
 
+// Dent day heading (screen and printed list)
+function dentGroup(v) {
+  if (!v.dent_date) return { key: 'none', title: 'No day set yet', cls: 'none' };
+  const diff = dayDiff(v.dent_date);
+  const long = new Date(`${v.dent_date}T00:00`).toLocaleDateString('en-IE', { weekday: 'long', day: 'numeric', month: 'short' });
+  if (diff < 0) return { key: 'overdue', title: `Missed — was ${long}`, cls: 'overdue' };
+  if (diff === 0) return { key: 'today', title: `Today — ${long}`, cls: 'today' };
+  if (diff === 1) return { key: 'tomorrow', title: `Tomorrow — ${long}`, cls: '' };
+  return { key: v.dent_date, title: long, cls: '' };
+}
+
+// Where the car is right now, in words (for the Dent list)
+function whereLabel(v) {
+  const tab = tabOf(v);
+  if (tab === 'loan') return `On loan to ${clean(v.loan_to) || 'a customer'}`;
+  if (isSold(v)) return `Sold${deliveryLabel(v) ? ` · delivery ${deliveryLabel(v)}` : ''}${tab === 'in_prep' ? ' · in prep' : ''}`;
+  return tab === 'in_prep' ? 'Stock · in prep' : 'Stock';
+}
+
+// Dent tab: a plain written to-do list grouped by the day of the dent service
+function dentHTML(list) {
+  const groups = new Map();
+  for (const v of list) {
+    const g = dentGroup(v);
+    if (!groups.has(g.key)) groups.set(g.key, { ...g, items: [] });
+    groups.get(g.key).items.push(v);
+  }
+  const row = v => `<div class="dent-row${isSold(v) && v.urgent ? ' urgent' : ''}" data-id="${v.id}">
+    <div class="dent-car">${plateHTML(v)}
+      <span class="vehicle-name">${esc([v.make, v.model].map(clean).filter(Boolean).join(' ') || 'Unknown vehicle')} ${colourHTML(v.color)}</span>
+      <span class="dent-where">${esc(whereLabel(v))}</span>
+    </div>
+    <div class="dent-fix">${esc(v.dent_notes || '—')}</div>
+    <div class="dent-actions">
+      <button class="btn small ghost" data-act="dent">Edit</button>
+      <button class="btn small accent" data-act="dentdone">${ICON.check} Done</button>
+    </div>
+  </div>`;
+  return [...groups.values()].map(g => `<section class="deliv-group dent-group ${g.cls}">
+    <h3>${esc(g.title)} <span class="count">${g.items.length}</span></h3>
+    ${g.items.map(row).join('')}
+  </section>`).join('');
+}
+
 const EMPTY = {
   stock: 'No vehicles in stock.',
   in_prep: 'Nobody is working on a car right now. Tap a service on a car to start it.',
   sold: 'No sold cars waiting for delivery.',
-  dent: 'No cars waiting for dent repair.',
+  dent: 'The dent list is empty. Tap “Dent” on a car to add it.',
   loan: 'No cars out on loan.',
   delivered: 'No deliveries yet.',
 };
@@ -520,11 +554,10 @@ function renderList() {
   if (!list.length) {
     let msg = EMPTY[S.tab];
     if (S.search) msg = 'No vehicles match your search.';
-    else if (S.onlyMine && ['stock', 'sold'].includes(S.tab)) msg = 'Nothing pending for you here. 👍';
     el.innerHTML = `<p class="empty">${msg}</p>`;
     return;
   }
-  el.innerHTML = S.tab === 'sold' ? soldHTML(list) : list.map(cardHTML).join('');
+  el.innerHTML = S.tab === 'sold' ? soldHTML(list) : S.tab === 'dent' ? dentHTML(list) : list.map(cardHTML).join('');
 }
 
 // ---------------------------------------------------------------------
@@ -582,10 +615,10 @@ function printSoldList() {
   for (const v of cars) {
     const g = deliveryGroup(v);
     if (g.key !== current) { current = g.key; rows.push({ group: g.title }); }
-    const where = v.hold === 'dent' ? '<strong>AT DENT</strong>' : v.hold === 'loan' ? '<strong>ON LOAN</strong>'
+    const where = v.hold === 'loan' ? '<strong>ON LOAN</strong>'
       : v.stock_status === 'due_in' ? '<strong>NOT ON SITE YET</strong>' : 'On site';
     const notes = [clean(v.notes), clean(v.mechanical_notes) && `Mechanical: ${clean(v.mechanical_notes)}`,
-      clean(v.vrt_nct) && `VRT/NCT: ${clean(v.vrt_nct)}`, v.hold === 'dent' && clean(v.dent_notes) && `Dent: ${clean(v.dent_notes)}`]
+      clean(v.vrt_nct) && `VRT/NCT: ${clean(v.vrt_nct)}`, inDent(v) && `Dent: ${clean(v.dent_notes) || 'on the dent list'}`]
       .filter(Boolean).map(esc).join('<br>');
     rows.push({ cells: [
       { html: plateCell(v), cls: 'plate-cell' },
@@ -602,22 +635,34 @@ function printSoldList() {
   });
 }
 
+function visibleDentList() {
+  const due = d => d ?? '9999-12-31';
+  return [...S.vehicles.values()].filter(inDent)
+    .sort((a, b) => due(a.dent_date).localeCompare(due(b.dent_date)) || (isSold(b) - isSold(a))
+      || new Date(a.dent_since ?? 0) - new Date(b.dent_since ?? 0));
+}
+
 function printDentList() {
-  const cars = [...S.vehicles.values()].filter(v => tabOf(v) === 'dent')
-    .sort((a, b) => (isSold(b) - isSold(a)) || new Date(a.dent_since ?? 0) - new Date(b.dent_since ?? 0));
-  if (!cars.length) return toast('No cars waiting for dent repair.');
-  printDoc({
-    title: 'Dent repairs', summary: plural(cars.length, 'car'),
-    how: 'Sold cars first. Tick ☐ when the repair is done — then tap “Dent done” in the app.',
-    columns: ['Plate', 'Car', 'What to fix', 'Since', 'Sold / delivery', 'Done'],
-    rows: cars.map(v => ({ cells: [
+  // Same order as the Dent tab: by dent day, sold cars first within a day
+  const cars = visibleDentList();
+  if (!cars.length) return toast('The dent list is empty.');
+  const rows = [];
+  let current = null;
+  for (const v of cars) {
+    const g = dentGroup(v);
+    if (g.key !== current) { current = g.key; rows.push({ group: g.title }); }
+    rows.push({ cells: [
       { html: plateCell(v), cls: 'plate-cell' },
       { html: carCell(v) },
       { html: esc(v.dent_notes || '—').replace(/\n/g, '<br>'), cls: 'notes-cell' },
-      { html: esc(v.dent_since ? fmtDate(v.dent_since) : '—') },
-      { html: isSold(v) ? `<strong>SOLD</strong><br>${esc(deliveryLabel(v) || 'No date')}` : 'Stock' },
+      { html: isSold(v) ? `<strong>SOLD</strong><br>${esc(deliveryLabel(v) || 'No delivery date')}` : esc(whereLabel(v)) },
       { html: '<span class="tick">☐</span>' },
-    ] })),
+    ] });
+  }
+  printDoc({
+    title: 'Dent list', summary: plural(cars.length, 'car'),
+    how: 'Sold cars first each day. Tick ☐ when the repair is done — then tap “Done” on the Dent list in the app.',
+    columns: ['Plate', 'Car', 'What to fix', 'Stock / sold', 'Done'], rows,
   });
 }
 
@@ -661,6 +706,7 @@ async function onListClick(e) {
   if (act === 'photo') return openPhoto(v);
   if (act === 'loan' || act === 'dent') return openHoldForm(v, act);
   if (act === 'release') return releaseHold(v);
+  if (act === 'dentdone') return dentDone(v);
 
   if (act === 'deliver') {
     if (!v.done_at && !confirmTap(btn, 'Not finished — tap again')) return;
@@ -688,10 +734,7 @@ function announceMove(before, after) {
 }
 
 async function cycleService(v, key, btn) {
-  if (!canMark(key)) {
-    toast(`Only ${whoCanMark(key)} can mark ${SERVICE[key].label}.`);
-    return;
-  }
+  if (!canMark(key)) return;
   const state = v[`${key}_state`];
   if (state === 'done' && !confirmTap(btn, 'Tap again to reset')) return;
   const next = NEXT_STATE[state];
@@ -727,29 +770,33 @@ async function setStatus(v, status, { undo = false } = {}) {
   } catch (err) { toast(errorText(err), { error: true }); }
 }
 
-// Loan (customer courtesy car) and Dent (paintless dent repair) take a car
-// out of Stock/Sold until someone taps Returned / Dent done.
+// Loan (customer courtesy car) takes a car out of Stock until someone taps
+// Returned. Dent (paintless dent repair) only puts the car on the written
+// Dent list — it stays where it is — until someone taps Done.
 const HOLD_FIELDS = {
   loan: ['loan_to', 'loan_phone', 'loan_due', 'loan_since'],
-  dent: ['dent_notes', 'dent_since'],
+  dent: ['dent_notes', 'dent_date', 'dent_since'],
 };
 
 function openHoldForm(v, kind) {
   const loan = kind === 'loan';
-  const editing = v.hold === kind;
+  const editing = loan ? v.hold === 'loan' : inDent(v);
   const car = [v.make, v.model].map(clean).filter(Boolean).join(' ');
   const sheet = openSheet(`<form class="form" id="holdForm" novalidate>
-    ${sheetHead(loan ? (editing ? 'Loan details' : 'Loan car to a customer') : (editing ? 'Dent details' : 'Send to Dent'))}
+    ${sheetHead(loan ? (editing ? 'Loan details' : 'Loan car to a customer') : (editing ? 'Dent list' : 'Add to Dent list'))}
     <div class="hold-car">${plateHTML(v)}<span class="muted">${esc(car)}</span></div>
     ${loan ? `
       <label>Customer name<input name="loan_to" value="${esc(v.loan_to)}" autocapitalize="words" required></label>
       <label>Phone<input name="loan_phone" type="tel" value="${esc(v.loan_phone)}" inputmode="tel"></label>
       <label>Back by<input name="loan_due" type="date" value="${esc(v.loan_due)}"></label>`
-    : `<label>What needs fixing<textarea name="dent_notes" rows="3" placeholder="e.g. rear left door, small dent on bonnet">${esc(v.dent_notes)}</textarea></label>`}
+    : `<label>What needs fixing<textarea name="dent_notes" rows="3" placeholder="e.g. rear left door, small dent on bonnet">${esc(v.dent_notes)}</textarea></label>
+      <label>Dent day<input name="dent_date" type="date" value="${esc(v.dent_date)}"></label>
+      <p class="hint" style="margin:0">The car stays where it is — it’s just added to the Dent list to print on that day.</p>`}
     <p class="form-error" id="holdError" hidden></p>
     <div class="sheet-actions">
+      ${!loan && editing ? `<button type="button" class="btn ghost danger" id="dentRemove">Take off list</button><span class="spacer"></span>` : ''}
       <button type="button" class="btn ghost" data-close>Cancel</button>
-      <button type="submit" class="btn primary">${editing ? 'Save' : loan ? 'Loan car' : 'Send to Dent'}</button>
+      <button type="submit" class="btn primary">${editing ? 'Save' : loan ? 'Loan car' : 'Add to Dent list'}</button>
     </div>
   </form>`);
   const form = $('#holdForm', sheet);
@@ -760,11 +807,10 @@ function openHoldForm(v, kind) {
     const patch = loan
       ? { hold: 'loan', loan_to: clean(f.loan_to.value), loan_phone: clean(f.loan_phone.value),
           loan_due: f.loan_due.value || null, loan_since: editing ? v.loan_since : now }
-      : { hold: 'dent', dent_notes: clean(f.dent_notes.value), dent_since: editing ? v.dent_since : now };
-    if (loan && !patch.loan_to) {
-      const el = $('#holdError', form); el.textContent = 'Enter the customer’s name.'; el.hidden = false;
-      return;
-    }
+      : { dent_notes: clean(f.dent_notes.value), dent_date: f.dent_date.value || null, dent_since: editing ? v.dent_since : now };
+    const fail = msg => { const el = $('#holdError', form); el.textContent = msg; el.hidden = false; };
+    if (loan && !patch.loan_to) return fail('Enter the customer’s name.');
+    if (!loan && !patch.dent_notes) return fail('Write what needs fixing.');
     const btn = form.querySelector('[type=submit]');
     btn.disabled = true;
     try {
@@ -772,12 +818,27 @@ function openHoldForm(v, kind) {
       closeSheet();
       renderAll();
       if (editing) toast('Saved');
-      else announceMove(v, saved);
+      else if (loan) announceMove(v, saved);
+      else toast('Added to the Dent list', { action: { label: 'Show', run: () => switchTab('dent') } });
     } catch (err) {
       btn.disabled = false;
-      const el = $('#holdError', form); el.textContent = errorText(err); el.hidden = false;
+      fail(errorText(err));
     }
   };
+  $('#dentRemove', form)?.addEventListener('click', () => { closeSheet(); dentDone(v); });
+}
+
+// Take a car off the Dent list (repair done), with Undo.
+async function dentDone(v) {
+  const patch = { dent_notes: '', dent_date: null, dent_since: null };
+  const undo = { dent_notes: v.dent_notes, dent_date: v.dent_date, dent_since: v.dent_since };
+  try {
+    await updateVehicle(v.id, patch);
+    renderAll();
+    toast('Dent done — taken off the list', {
+      action: { label: 'Undo', run: async () => { await updateVehicle(v.id, undo); renderAll(); } },
+    });
+  } catch (err) { toast(errorText(err), { error: true }); }
 }
 
 async function releaseHold(v) {
@@ -908,7 +969,10 @@ function openVehicleForm({ vehicle = null, sold = false, convert = false } = {})
     </div>
     <label>Colour<input name="color" value="${esc(v.color)}" autocapitalize="words"></label>
     <div class="swatches" id="swatches">${COLOURS.map(([n, h]) => `<button type="button" class="swatch" data-colour="${n}"><span class="dot" style="background:${h}"></span>${n}</button>`).join('')}</div>
-    <fieldset><legend>Services</legend><div class="pills">${SERVICES.map(svcPill).join('')}</div></fieldset>
+    <fieldset><legend>Services needed${isNew ? ' — pick at least one' : ''}</legend><div class="pills" id="svcPills">
+      <label class="pill all"><input type="checkbox" id="svcAll" ${SERVICES.every(s => services.includes(s.key)) ? 'checked' : ''}><span>All</span></label>
+      ${SERVICES.map(svcPill).join('')}
+    </div></fieldset>
     ${soldFields ? `
       <div class="section-label">Sale</div>
       <div class="pills">
@@ -946,6 +1010,12 @@ function openVehicleForm({ vehicle = null, sold = false, convert = false } = {})
   });
   colourInput.addEventListener('input', markSwatch);
 
+  // "All" ticks every service; it stays in sync when services are ticked one by one.
+  const svcBoxes = SERVICES.map(s => form.elements[`svc_${s.key}`]);
+  const allBox = $('#svcAll', form);
+  allBox.addEventListener('change', () => svcBoxes.forEach(b => { b.checked = allBox.checked; }));
+  svcBoxes.forEach(b => b.addEventListener('change', () => { allBox.checked = svcBoxes.every(x => x.checked); }));
+
   $('#photoInput', form).addEventListener('change', e => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -977,6 +1047,7 @@ function openVehicleForm({ vehicle = null, sold = false, convert = false } = {})
       services: SERVICES.filter(s => f[`svc_${s.key}`].checked).map(s => s.key),
     };
     if (!row.reg_ie && !row.reg_imp) return showError('Enter at least one registration (IRL or IMP).');
+    if (isNew && !row.services.length) return showError('Choose the services this car needs (or tap All).');
     if (soldFields) Object.assign(row, {
       urgent: f.urgent.checked,
       stock_status: form.querySelector('[name=stock_status]:checked')?.value ?? 'in_stock',
@@ -1092,26 +1163,12 @@ function openNewPassword() {
 // ---------------------------------------------------------------------
 function renderTeam() {
   const staff = [...S.profiles.values()].sort((a, b) => a.display_name.localeCompare(b.display_name));
-  const roleBlock = r => {
-    const members = [...S.team[r.role]].map(id => S.profiles.get(id)).filter(Boolean);
-    const others = staff.filter(p => !S.team[r.role].has(p.id));
-    return `<div class="panel" data-role="${r.role}">
-      <h2>${esc(r.label)}</h2>
-      <div class="member-chips">${members.length
-        ? members.map(p => `<span class="member">${esc(p.display_name)}<button type="button" data-remove="${p.id}" aria-label="Remove">×</button></span>`).join('')
-        : '<span class="muted">Nobody yet — only admins can mark this service.</span>'}</div>
-      ${others.length ? `<div class="add-row">
-        <select aria-label="Add team member"><option value="">Add someone…</option>${others.map(p => `<option value="${p.id}">${esc(p.display_name)}</option>`).join('')}</select>
-        <button type="button" class="btn" data-add>Add</button>
-      </div>` : ''}
-    </div>`;
-  };
 
+  // Service teams are gone: anyone on staff can mark any service.
   $('#teamView').innerHTML = `
-    ${ROLES.map(roleBlock).join('')}
     <div class="panel">
-      <h2>Open to everyone <span class="badge grey">Open</span></h2>
-      <p class="muted">Anyone on staff can mark ${esc(SERVICES.filter(s => !s.role).map(s => s.label).join(', '))}.</p>
+      <h2>Services</h2>
+      <p class="muted">Anyone on staff can mark any service. The app records who did each job and when — that’s what the pay report uses.</p>
     </div>
     <div class="panel" id="staffPanel">
       <h2>Staff</h2>
@@ -1593,7 +1650,6 @@ function wireUi() {
     if (b) { switchTab(b.dataset.tab); window.scrollTo(0, 0); }
   });
   $('#search').addEventListener('input', e => { S.search = e.target.value; renderList(); });
-  $('#onlyMine').addEventListener('change', e => { S.onlyMine = e.target.checked; renderList(); });
   $('#purgeBtn').addEventListener('click', purgeOld);
   $('#printBtn').addEventListener('click', printCurrentList);
   $('#fab').addEventListener('click', () => (S.tab === 'stock' ? openVehicleForm() : openSoldPicker()));
