@@ -272,5 +272,20 @@ Setup instructions are in `README.md`.
 - The report screen is a **weekly pay report** (presets This/Last week, This/Last
   month, custom dates; per-person car lists; print/PDF and two CSVs). No pay-rate
   maths and no "commission" labels, at the owner's request.
+- **Database migrations** run by hand in the Supabase SQL Editor, in order:
+  `schema.sql`, `002_push_notifications.sql`, `003_admin_only_stock_and_sales.sql`,
+  `004_delivery_date.sql`. Ship UI that needs a new column only after its migration ran.
+- **Push notifications** (new stock only, creator excluded): `public/sw.js` +
+  `push_subscriptions`; a trigger calls the Edge Function deployed as
+  **`swift-responder`** (code in `supabase/functions/notify/`), which needs the
+  `VAPID_PRIVATE_KEY` secret. The key file lives outside the repo in
+  `%USERPROFILE%\M6-secrets` — never put it in the project folder (Netlify deploys
+  upload the whole folder).
+- **Admin-only:** adding vehicles and moving them in/out of stock (mark sold) —
+  hidden in the UI and enforced by the `admin add vehicles` policy and the
+  `vehicles_stock_guard` trigger.
+- **To deliver tab** (`schedule`): the in_prep cars grouped by `delivery_date`
+  (Overdue / Today / Tomorrow / later / no date) with Ready / Waiting status; tapping
+  opens the card in In prep. Old free-text `delivery_day` is shown as a fallback.
 - Open decisions (§10) were left as in the prototype: free-text fields, Full Valet
   as the only commission service, the English "Polish" label, no mechanic accounts.
