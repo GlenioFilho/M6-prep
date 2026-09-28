@@ -260,6 +260,11 @@ Setup instructions are in `README.md`.
   edits and the report data to admins.
 - **Report source is `service_completions`,** a log written by a trigger. It
   survives the 30-day purge, which would otherwise erase last month's commission data.
+- **Six services** (DB key → label): first → First Clean / Tar Remove, decrome →
+  Window Tint / Dechrome, polish → Polish / Compound, full → Full Valet, windscreen,
+  repair → Repair / Body Shop. Only first/full/polish are team-restricted. To add a
+  service: columns `{key}_state/_by/_done_at`, `service_keys()`, the services check,
+  and `SERVICES` in app.js.
 - Delivery day/time columns are `delivery_day` / `delivery_time`, not `day` / `time`.
 - **Live at https://m6motors.netlify.app** — Netlify site id
   `529c7295-b563-4dd3-9600-b38d744c191c`. To redeploy,
@@ -274,7 +279,7 @@ Setup instructions are in `README.md`.
   maths and no "commission" labels, at the owner's request.
 - **Database migrations** run by hand in the Supabase SQL Editor, in order:
   `schema.sql`, `002_push_notifications.sql`, `003_admin_only_stock_and_sales.sql`,
-  `004_delivery_date.sql`, `005_loan_and_dent.sql`. Ship UI that needs a new column only after its migration ran.
+  `004_delivery_date.sql`, `005_loan_and_dent.sql`, `006_six_services.sql`. Ship UI that needs a new column only after its migration ran.
 - **Push notifications** (new stock only, creator excluded): `public/sw.js` +
   `push_subscriptions`; a trigger calls the Edge Function deployed as
   **`swift-responder`** (code in `supabase/functions/notify/`), which needs the
