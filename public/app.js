@@ -333,6 +333,7 @@ function renderTabs() {
   }
   $('#onlyMineWrap').hidden = S.tab !== 'in_prep';
   $('#purgeBtn').hidden = S.tab !== 'delivered';
+  $('#printSoldBtn').hidden = S.tab !== 'schedule';
   const fab = $('#fab');
   // Adding stock and recording sales are admin-only (also enforced in the database)
   fab.hidden = S.tab === 'delivered' || !isAdmin();
@@ -504,6 +505,73 @@ function renderList() {
     return;
   }
   el.innerHTML = S.tab === 'schedule' ? scheduleHTML(list) : list.map(cardHTML).join('');
+}
+
+// Daily printed job sheet: every sold car not yet delivered, in priority order
+// (overdue → today → tomorrow → later → no date; urgent first within a day),
+// with a ☐ box per service still to do and ✓ for the ones already done.
+function printSoldList() {
+  const cars = [...S.vehicles.values()].filter(v => v.status === 'in_prep');
+  if (!cars.length) return toast('No sold cars waiting for delivery.');
+
+  const dayKey = v => (v.delivery_date ?? '9999-12-31');
+  cars.sort((a, b) => dayKey(a).localeCompare(dayKey(b)) || (b.urgent - a.urgent)
+    || clean(a.delivery_time).localeCompare(clean(b.delivery_time)));
+
+  const groupTitle = v => {
+    if (!v.delivery_date) return 'No delivery date yet';
+    const diff = dayDiff(v.delivery_date);
+    if (diff < 0) return 'Overdue';
+    const long = new Date(`${v.delivery_date}T00:00`).toLocaleDateString('en-IE', { weekday: 'long', day: 'numeric', month: 'short' });
+    return diff === 0 ? `Today — ${long}` : diff === 1 ? `Tomorrow — ${long}` : long;
+  };
+
+  let rows = '', current = null, n = 0;
+  for (const v of cars) {
+    const title = groupTitle(v);
+    if (title !== current) {
+      current = title;
+      rows += `<tr class="group"><td colspan="6">${esc(title)}</td></tr>`;
+    }
+    const services = SERVICES.filter(s => v.services.includes(s.key)).map(s => {
+      const state = v[`${s.key}_state`];
+      if (state === 'done') return `<span class="done">✓ ${esc(s.label)} <small>(${esc(nameOf(v[`${s.key}_by`]))})</small></span>`;
+      return `<span>☐ ${esc(s.label)}${state === 'doing' ? ` <small>(started: ${esc(nameOf(v[`${s.key}_by`]))})</small>` : ''}</span>`;
+    }).join('') || '<span class="muted">No services</span>';
+    const notes = [
+      clean(v.notes),
+      clean(v.mechanical_notes) && `Mechanical: ${clean(v.mechanical_notes)}`,
+      clean(v.vrt_nct) && `VRT/NCT: ${clean(v.vrt_nct)}`,
+    ].filter(Boolean).map(esc).join('<br>');
+    const plates = [v.reg_ie, v.reg_imp].map(clean).filter(Boolean).map(esc).join('<br>');
+    const car = [v.make, v.model].map(clean).filter(Boolean).join(' ');
+    rows += `<tr>
+      <td class="num">${++n}</td>
+      <td class="plate-cell">${plates}${v.urgent ? '<div class="urgent-tag">URGENT</div>' : ''}</td>
+      <td><strong>${esc(car || 'Unknown vehicle')}</strong>${clean(v.color) ? `<br>${esc(v.color)}` : ''}${clean(v.seller) ? `<br><small>Sold by ${esc(v.seller)}</small>` : ''}</td>
+      <td>${esc(deliveryLabel(v) || '—')}<br><small>${v.stock_status === 'due_in' ? '<strong>NOT ON SITE YET</strong>' : 'On site'}</small></td>
+      <td class="svc-cell">${services}</td>
+      <td class="notes-cell">${notes}</td>
+    </tr>`;
+  }
+
+  const now = new Date();
+  $('#printSheet').innerHTML = `
+    <header>
+      <div><h1>M6 Motors · Sold cars</h1>
+        <p>${esc(now.toLocaleDateString('en-IE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }))} · ${cars.length} car${cars.length === 1 ? '' : 's'} to prepare</p></div>
+      <p class="how">Work top to bottom. Tick ☐ when a job is done — and tap it in the app too.</p>
+    </header>
+    <table>
+      <thead><tr><th>#</th><th>Plate</th><th>Car</th><th>Delivery</th><th>Jobs</th><th>Notes</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <footer>Printed ${esc(fmtDate(now.toISOString()))} by ${esc(S.me?.display_name ?? '')}</footer>`;
+
+  document.body.classList.add('printing-sheet');
+  const done = () => { document.body.classList.remove('printing-sheet'); window.removeEventListener('afterprint', done); };
+  window.addEventListener('afterprint', done);
+  window.print();
 }
 
 // From "To deliver": open the car's full card in In prep and highlight it.
@@ -1389,6 +1457,7 @@ function wireUi() {
   $('#search').addEventListener('input', e => { S.search = e.target.value; renderList(); });
   $('#onlyMine').addEventListener('change', e => { S.onlyMine = e.target.checked; renderList(); });
   $('#purgeBtn').addEventListener('click', purgeOld);
+  $('#printSoldBtn').addEventListener('click', printSoldList);
   $('#fab').addEventListener('click', () => (S.tab === 'stock' ? openVehicleForm() : openSoldPicker()));
   $('#list').addEventListener('click', onListClick);
 

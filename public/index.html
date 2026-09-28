@@ -13,8 +13,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <!-- Bump ?v= after changing these files so phones load the new version -->
-  <link rel="stylesheet" href="styles.css?v=8">
-  <script type="module" src="app.js?v=8"></script>
+  <link rel="stylesheet" href="styles.css?v=9">
+  <script type="module" src="app.js?v=9"></script>
 </head>
 <body>
   <!-- Shown until config.js is filled in -->
@@ -66,6 +66,7 @@
         <label id="onlyMineWrap" class="switch" hidden>
           <input type="checkbox" id="onlyMine"><span class="track"></span> Only pending for me
         </label>
+        <button id="printSoldBtn" type="button" class="btn small" hidden>🖨 Print sold list</button>
         <button id="purgeBtn" type="button" class="btn ghost danger small admin-only" hidden>Delete records older than 30 days</button>
       </div>
       <div id="list" class="list"><p class="empty">Loading…</p></div>
@@ -75,6 +76,9 @@
     <section id="teamView" class="page" hidden></section>
     <section id="reportView" class="page" hidden></section>
   </div>
+
+  <!-- Filled just before printing the daily sold-cars sheet -->
+  <div id="printSheet" class="print-sheet"></div>
 
   <div id="sheetBackdrop" class="sheet-backdrop" hidden>
     <div id="sheet" class="sheet" role="dialog" aria-modal="true"></div>
