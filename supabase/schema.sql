@@ -125,6 +125,15 @@ create table if not exists public.vehicles (
   delivery_day     text not null default '',
   delivery_time    text not null default '',
   delivery_date    date,
+
+  -- Out of the normal flow: on loan to a customer, or at dent repair (005_*.sql)
+  hold             text check (hold in ('loan', 'dent')),
+  loan_to          text not null default '',
+  loan_phone       text not null default '',
+  loan_since       timestamptz,
+  loan_due         date,
+  dent_notes       text not null default '',
+  dent_since       timestamptz,
   stock_status     text not null default 'in_stock' check (stock_status in ('in_stock', 'due_in')),
   seller           text not null default '',
   vrt_nct          text not null default '',

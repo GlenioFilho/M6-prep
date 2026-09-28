@@ -25,8 +25,9 @@ const COLOURS = [
 ];
 const COLOUR_HEX = Object.fromEntries(COLOURS.map(([n, h]) => [n.toLowerCase(), h]));
 
-// "schedule" (To deliver) is a view of the in_prep cars grouped by delivery date
-const TAB_TITLE = { stock: 'Stock', in_prep: 'In prep', schedule: 'To deliver', delivered: 'Delivered' };
+// Tabs are views, not the database status (see tabOf): the DB status
+// 'in_prep' means "sold, not delivered yet".
+const TAB_TITLE = { stock: 'Stock', in_prep: 'In prep', sold: 'Sold', dent: 'Dent', loan: 'Loan', delivered: 'Delivered' };
 
 const ICON = {
   back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>',
@@ -157,7 +158,7 @@ const S = {
   team: Object.fromEntries(ROLES.map(r => [r.role, new Set()])),
   vehicles: new Map(),      // id → row
   photoUrls: new Map(),     // storage path → signed URL
-  tab: 'in_prep',
+  tab: 'stock',
   view: 'main',
   search: '',
   onlyMine: false,
@@ -320,23 +321,36 @@ function renderAll() {
 // ---------------------------------------------------------------------
 // Main list
 // ---------------------------------------------------------------------
+// Which tab a car shows in. Delivered is history; Loan and Dent take the car
+// out of the normal flow until it comes back; a car with someone working on
+// it (any service "doing") is In prep; otherwise it's Sold or Stock.
+const isWorking = v => v.services.some(k => v[`${k}_state`] === 'doing');
+
+function tabOf(v) {
+  if (v.status === 'delivered') return 'delivered';
+  if (v.hold === 'loan') return 'loan';
+  if (v.hold === 'dent') return 'dent';
+  if (isWorking(v)) return 'in_prep';
+  return v.status === 'in_prep' ? 'sold' : 'stock';
+}
+
+const isSold = v => v.status === 'in_prep';
+
 function renderTabs() {
-  const counts = { stock: 0, in_prep: 0, schedule: 0, delivered: 0 };
-  for (const v of S.vehicles.values()) {
-    counts[v.status]++;
-    // To deliver: how many are due today (or overdue)
-    if (v.status === 'in_prep' && v.delivery_date && dayDiff(v.delivery_date) <= 0) counts.schedule++;
-  }
+  const counts = Object.fromEntries(Object.keys(TAB_TITLE).map(t => [t, 0]));
+  for (const v of S.vehicles.values()) counts[tabOf(v)]++;
   for (const b of $$('.tabs button')) {
     b.setAttribute('aria-selected', b.dataset.tab === S.tab);
     $('.count', b).textContent = counts[b.dataset.tab];
   }
-  $('#onlyMineWrap').hidden = S.tab !== 'in_prep';
+  $('#onlyMineWrap').hidden = !['stock', 'sold'].includes(S.tab);
   $('#purgeBtn').hidden = S.tab !== 'delivered';
-  $('#printSoldBtn').hidden = S.tab !== 'schedule';
+  const print = $('#printBtn');
+  print.hidden = !['sold', 'dent', 'loan'].includes(S.tab);
+  print.textContent = `🖨 Print ${TAB_TITLE[S.tab]?.toLowerCase()} list`;
   const fab = $('#fab');
   // Adding stock and recording sales are admin-only (also enforced in the database)
-  fab.hidden = S.tab === 'delivered' || !isAdmin();
+  fab.hidden = !['stock', 'sold'].includes(S.tab) || !isAdmin();
   fab.innerHTML = `${ICON.plus}<span>${S.tab === 'stock' ? 'New stock' : 'Sold'}</span>`;
 }
 
@@ -346,22 +360,26 @@ function pendingForMe(v) {
 
 function visibleVehicles() {
   const q = norm(S.search);
-  const status = S.tab === 'schedule' ? 'in_prep' : S.tab;
-  let list = [...S.vehicles.values()].filter(v => v.status === status);
+  let list = [...S.vehicles.values()].filter(v => tabOf(v) === S.tab);
   if (q) {
-    list = list.filter(v => [v.reg_ie, v.reg_imp, v.make, v.model, v.seller, `${v.make}${v.model}`].some(f => norm(f).includes(q)));
+    list = list.filter(v => [v.reg_ie, v.reg_imp, v.make, v.model, v.seller, v.loan_to, `${v.make}${v.model}`]
+      .some(f => norm(f).includes(q)));
   }
-  if (S.tab === 'in_prep' && S.onlyMine) list = list.filter(pendingForMe);
+  if (['stock', 'sold'].includes(S.tab) && S.onlyMine) list = list.filter(pendingForMe);
 
   const t = x => new Date(x ?? 0).getTime();
-  if (S.tab === 'stock') list.sort((a, b) => t(b.created_at) - t(a.created_at));
-  // Urgent first, then soonest delivery date (no date last), then oldest sale
-  const due = v => v.delivery_date ?? '9999-12-31';
-  if (S.tab === 'in_prep' || S.tab === 'schedule') {
-    list.sort((a, b) => (b.urgent - a.urgent) || due(a).localeCompare(due(b)) || (t(a.sold_at) - t(b.sold_at)));
-  }
-  if (S.tab === 'delivered') list.sort((a, b) => t(b.delivered_at) - t(a.delivered_at));
-  return list;
+  const due = d => d ?? '9999-12-31';
+  const sorts = {
+    stock: (a, b) => t(b.created_at) - t(a.created_at),
+    // Sold cars being worked on first (they're the priority), then by delivery date
+    in_prep: (a, b) => (isSold(b) - isSold(a)) || (b.urgent - a.urgent) || due(a.delivery_date).localeCompare(due(b.delivery_date)),
+    sold: (a, b) => due(a.delivery_date).localeCompare(due(b.delivery_date)) || (b.urgent - a.urgent)
+      || clean(a.delivery_time).localeCompare(clean(b.delivery_time)),
+    dent: (a, b) => t(a.dent_since) - t(b.dent_since),
+    loan: (a, b) => due(a.loan_due).localeCompare(due(b.loan_due)),
+    delivered: (a, b) => t(b.delivered_at) - t(a.delivered_at),
+  };
+  return list.sort(sorts[S.tab]);
 }
 
 function plateHTML(v) {
@@ -392,46 +410,57 @@ function serviceHTML(v, key) {
   </button>`;
 }
 
-function detailRow(label, value) {
-  return clean(value) ? `<div><dt>${label}</dt><dd>${esc(value)}</dd></div>` : '';
+function detailRow(label, value, html = null) {
+  return clean(value) ? `<div><dt>${label}</dt><dd>${html ?? esc(value)}</dd></div>` : '';
 }
 
 function cardHTML(v) {
   const url = v.photo_path && S.photoUrls.get(v.photo_path);
-  const sold = v.status !== 'stock';
+  const tab = tabOf(v);
+  const sold = isSold(v);
   const chips = [];
-  if (sold && v.urgent && v.status === 'in_prep') chips.push('<span class="chip urgent">URGENT</span>');
+
+  if (tab === 'loan') {
+    const late = v.loan_due && dayDiff(v.loan_due) < 0;
+    chips.push(`<span class="chip hold">ON LOAN</span>`);
+    if (v.loan_due) chips.push(`<span class="chip${late ? ' urgent' : ''}">${late ? 'OVERDUE · ' : ''}Back ${esc(dayName(v.loan_due))}</span>`);
+  }
+  if (tab === 'dent') chips.push('<span class="chip hold">DENT</span>');
+  if (sold && tab !== 'sold') chips.push('<span class="chip sold">SOLD</span>');
+  if (sold && v.urgent) chips.push('<span class="chip urgent">URGENT</span>');
   if (sold) {
     const when = deliveryLabel(v);
     const soon = v.delivery_date && dayDiff(v.delivery_date) <= 0;
-    if (when && v.status === 'in_prep') chips.push(`<span class="chip${soon ? ' warn' : ''}">Delivery: ${esc(when)}</span>`);
-    if (v.status === 'in_prep') chips.push(v.stock_status === 'due_in' ? '<span class="chip warn">Due in</span>' : '<span class="chip">On site</span>');
+    if (when) chips.push(`<span class="chip${soon ? ' warn' : ''}">Delivery: ${esc(when)}</span>`);
+    chips.push(v.stock_status === 'due_in' ? '<span class="chip warn">Due in</span>' : '<span class="chip">On site</span>');
   }
-  if (v.status !== 'delivered' && v.services.length) {
-    chips.push(v.done_at ? '<span class="chip ok">All services done</span>' : '');
-  }
+  if (v.status !== 'delivered' && v.services.length && v.done_at) chips.push('<span class="chip ok">All services done</span>');
   if (v.status === 'delivered') chips.push(`<span class="chip ok">Delivered ${esc(fmtDate(v.delivered_at))}</span>`);
 
-  const details = sold ? [
-    detailRow('Salesperson', v.seller),
-    detailRow('VRT / NCT', v.vrt_nct),
-    detailRow('Mechanical', v.mechanical_notes),
-    detailRow('Estimate', v.estimate),
-  ].join('') : '';
+  const phone = clean(v.loan_phone);
+  const details = [
+    tab === 'loan' ? detailRow('Customer', v.loan_to) : '',
+    tab === 'loan' ? detailRow('Phone', phone, `<a href="tel:${esc(phone.replace(/[^\d+]/g, ''))}">${esc(phone)}</a>`) : '',
+    tab === 'loan' ? detailRow('Out since', v.loan_since && fmtDate(v.loan_since)) : '',
+    tab === 'dent' ? detailRow('To fix', v.dent_notes) : '',
+    tab === 'dent' ? detailRow('Since', v.dent_since && fmtDate(v.dent_since)) : '',
+    sold ? detailRow('Salesperson', v.seller) : '',
+    sold ? detailRow('VRT / NCT', v.vrt_nct) : '',
+    sold ? detailRow('Mechanical', v.mechanical_notes) : '',
+    sold ? detailRow('Estimate', v.estimate) : '',
+  ].join('');
 
-  let actions = '';
-  if (v.status === 'stock') {
-    actions = `<button class="btn small ghost" data-act="edit">Edit</button>
-      ${isAdmin() ? '<button class="btn small primary" data-act="sell">Mark sold</button>' : ''}`;
-  } else if (v.status === 'in_prep') {
-    actions = `<button class="btn small ghost" data-act="edit">Edit</button>
-      <button class="btn small accent" data-act="deliver">${ICON.check} Delivered</button>`;
-  } else {
-    actions = `<button class="btn small ghost" data-act="reopen">Reopen</button>`;
-  }
-  const remove = isAdmin() && v.status !== 'delivered' ? '<button class="btn small ghost danger" data-act="remove">Remove</button><span class="spacer"></span>' : '';
+  const b = (act, label, cls = 'ghost') => `<button class="btn small ${cls}" data-act="${act}">${label}</button>`;
+  let actions;
+  if (tab === 'delivered') actions = b('reopen', 'Reopen');
+  else if (tab === 'loan') actions = b('edit', 'Edit') + b('loan', 'Loan details') + b('release', `${ICON.check} Returned`, 'accent');
+  else if (tab === 'dent') actions = b('edit', 'Edit') + b('dent', 'Dent details') + b('release', `${ICON.check} Dent done`, 'accent');
+  else if (sold) actions = b('edit', 'Edit') + b('dent', 'Dent') + b('deliver', `${ICON.check} Delivered`, 'accent');
+  else actions = b('edit', 'Edit') + b('loan', 'Loan') + b('dent', 'Dent') + (isAdmin() ? b('sell', 'Mark sold', 'primary') : '');
+  const remove = isAdmin() && v.status !== 'delivered' ? `${b('remove', 'Remove', 'ghost danger')}<span class="spacer"></span>` : '';
 
-  return `<article class="card${sold && v.urgent && v.status === 'in_prep' ? ' urgent' : ''}" data-id="${v.id}">
+  const flagged = (sold && v.urgent) || (tab === 'loan' && v.loan_due && dayDiff(v.loan_due) < 0);
+  return `<article class="card${flagged ? ' urgent' : ''}" data-id="${v.id}">
     <div class="card-head">
       ${url ? `<img class="thumb" src="${esc(url)}" alt="" data-act="photo" loading="lazy">` : ''}
       <div class="card-title">
@@ -439,7 +468,7 @@ function cardHTML(v) {
         <div class="vehicle-name">${esc([v.make, v.model].map(clean).filter(Boolean).join(' ') || 'Unknown vehicle')} ${colourHTML(v.color)}</div>
       </div>
     </div>
-    ${chips.filter(Boolean).length ? `<div class="chips">${chips.join('')}</div>` : ''}
+    ${chips.length ? `<div class="chips">${chips.join('')}</div>` : ''}
     ${details ? `<dl class="details">${details}</dl>` : ''}
     ${clean(v.notes) ? `<div class="notes">${esc(v.notes)}</div>` : ''}
     ${v.services.length ? `<div class="services">${SERVICES.filter(s => v.services.includes(s.key)).map(s => serviceHTML(v, s.key)).join('')}</div>` : ''}
@@ -447,124 +476,84 @@ function cardHTML(v) {
   </article>`;
 }
 
-// "To deliver": sold cars grouped by delivery day, each marked Ready or
-// showing which services are still missing. Tapping one opens it in In prep.
-function scheduleHTML(list) {
+// Delivery-day heading for sold cars (screen and printed list)
+function deliveryGroup(v) {
+  if (!v.delivery_date) return { key: 'none', title: 'No delivery date yet', cls: 'none' };
+  const diff = dayDiff(v.delivery_date);
+  const long = new Date(`${v.delivery_date}T00:00`).toLocaleDateString('en-IE', { weekday: 'long', day: 'numeric', month: 'short' });
+  if (diff < 0) return { key: 'overdue', title: 'Overdue', cls: 'overdue' };
+  if (diff === 0) return { key: 'today', title: `Today — ${long}`, cls: 'today' };
+  if (diff === 1) return { key: 'tomorrow', title: `Tomorrow — ${long}`, cls: '' };
+  return { key: v.delivery_date, title: long, cls: '' };
+}
+
+// Sold tab: full cards under delivery-day headings (list is already sorted)
+function soldHTML(list) {
   const groups = new Map();
-  const add = (key, title, cls, v) => {
-    if (!groups.has(key)) groups.set(key, { title, cls, items: [] });
-    groups.get(key).items.push(v);
-  };
-  const sorted = [...list].sort((a, b) =>
-    (a.delivery_date ?? '9999-12-31').localeCompare(b.delivery_date ?? '9999-12-31')
-    || clean(a.delivery_time).localeCompare(clean(b.delivery_time))
-    || (b.urgent - a.urgent));
-  for (const v of sorted) {
-    if (!v.delivery_date) { add('none', 'No delivery date yet', 'none', v); continue; }
-    const diff = dayDiff(v.delivery_date);
-    if (diff < 0) add('overdue', 'Overdue', 'overdue', v);
-    else if (diff === 0) add('today', 'Today', 'today', v);
-    else add(v.delivery_date, diff === 1 ? 'Tomorrow'
-      : new Date(`${v.delivery_date}T00:00`).toLocaleDateString('en-IE', { weekday: 'long', day: 'numeric', month: 'short' }), '', v);
+  for (const v of list) {
+    const g = deliveryGroup(v);
+    if (!groups.has(g.key)) groups.set(g.key, { ...g, items: [] });
+    groups.get(g.key).items.push(v);
   }
-
-  const row = v => {
-    const waiting = v.services.filter(k => v[`${k}_state`] !== 'done').map(k => SERVICE[k].label);
-    const meta = [
-      v.delivery_date ? clean(v.delivery_time) : deliveryLabel(v),
-      v.delivery_date && dayDiff(v.delivery_date) < 0 ? `was due ${dayName(v.delivery_date)}` : '',
-      clean(v.seller) && `Sold by ${clean(v.seller)}`,
-      v.stock_status === 'due_in' ? 'Car not on site yet' : '',
-    ].filter(Boolean);
-    return `<div class="deliv${v.urgent ? ' urgent' : ''}" role="button" tabindex="0" data-id="${v.id}" data-act="goto">
-      <div class="deliv-main">
-        ${plateHTML(v)}
-        <div class="vehicle-name">${v.urgent ? '<span class="chip urgent">URGENT</span> ' : ''}${esc([v.make, v.model].map(clean).filter(Boolean).join(' ') || 'Unknown vehicle')}</div>
-        ${meta.length ? `<div class="deliv-meta">${esc(meta.join(' · '))}</div>` : ''}
-      </div>
-      <div class="deliv-status ${waiting.length ? 'waiting' : 'ready'}">
-        ${waiting.length ? `<strong>Not ready</strong><span>Waiting: ${esc(waiting.join(', '))}</span>` : `${ICON.check}<strong>Ready</strong>`}
-      </div>
-    </div>`;
-  };
-
   return [...groups.values()].map(g => `<section class="deliv-group ${g.cls}">
     <h3>${esc(g.title)} <span class="count">${g.items.length}</span></h3>
-    ${g.items.map(row).join('')}
+    ${g.items.map(cardHTML).join('')}
   </section>`).join('');
 }
+
+const EMPTY = {
+  stock: 'No vehicles in stock.',
+  in_prep: 'Nobody is working on a car right now. Tap a service on a car to start it.',
+  sold: 'No sold cars waiting for delivery.',
+  dent: 'No cars waiting for dent repair.',
+  loan: 'No cars out on loan.',
+  delivered: 'No deliveries yet.',
+};
 
 function renderList() {
   const list = visibleVehicles();
   const el = $('#list');
   if (!list.length) {
-    let msg = { stock: 'No vehicles in stock.', in_prep: 'Nothing in prep.', schedule: 'No sold cars waiting for delivery.', delivered: 'No deliveries yet.' }[S.tab];
+    let msg = EMPTY[S.tab];
     if (S.search) msg = 'No vehicles match your search.';
-    else if (S.tab === 'in_prep' && S.onlyMine) msg = 'Nothing pending for you. 👍';
+    else if (S.onlyMine && ['stock', 'sold'].includes(S.tab)) msg = 'Nothing pending for you here. 👍';
     el.innerHTML = `<p class="empty">${msg}</p>`;
     return;
   }
-  el.innerHTML = S.tab === 'schedule' ? scheduleHTML(list) : list.map(cardHTML).join('');
+  el.innerHTML = S.tab === 'sold' ? soldHTML(list) : list.map(cardHTML).join('');
 }
 
-// Daily printed job sheet: every sold car not yet delivered, in priority order
-// (overdue → today → tomorrow → later → no date; urgent first within a day),
-// with a ☐ box per service still to do and ✓ for the ones already done.
-function printSoldList() {
-  const cars = [...S.vehicles.values()].filter(v => v.status === 'in_prep');
-  if (!cars.length) return toast('No sold cars waiting for delivery.');
+// ---------------------------------------------------------------------
+// Printed lists (Sold / Dent / Loan)
+// ---------------------------------------------------------------------
+const carCell = v => `<strong>${esc([v.make, v.model].map(clean).filter(Boolean).join(' ') || 'Unknown vehicle')}</strong>${clean(v.color) ? `<br>${esc(v.color)}` : ''}`;
+const plateCell = v => [v.reg_ie, v.reg_imp].map(clean).filter(Boolean).map(esc).join('<br>')
+  + (isSold(v) && v.urgent ? '<div class="urgent-tag">URGENT</div>' : '');
 
-  const dayKey = v => (v.delivery_date ?? '9999-12-31');
-  cars.sort((a, b) => dayKey(a).localeCompare(dayKey(b)) || (b.urgent - a.urgent)
-    || clean(a.delivery_time).localeCompare(clean(b.delivery_time)));
+function jobsCell(v) {
+  return SERVICES.filter(s => v.services.includes(s.key)).map(s => {
+    const state = v[`${s.key}_state`];
+    if (state === 'done') return `<span class="done">✓ ${esc(s.label)} <small>(${esc(nameOf(v[`${s.key}_by`]))})</small></span>`;
+    return `<span>☐ ${esc(s.label)}${state === 'doing' ? ` <small>(started: ${esc(nameOf(v[`${s.key}_by`]))})</small>` : ''}</span>`;
+  }).join('') || '<span class="muted">No services</span>';
+}
 
-  const groupTitle = v => {
-    if (!v.delivery_date) return 'No delivery date yet';
-    const diff = dayDiff(v.delivery_date);
-    if (diff < 0) return 'Overdue';
-    const long = new Date(`${v.delivery_date}T00:00`).toLocaleDateString('en-IE', { weekday: 'long', day: 'numeric', month: 'short' });
-    return diff === 0 ? `Today — ${long}` : diff === 1 ? `Tomorrow — ${long}` : long;
-  };
-
-  let rows = '', current = null, n = 0;
-  for (const v of cars) {
-    const title = groupTitle(v);
-    if (title !== current) {
-      current = title;
-      rows += `<tr class="group"><td colspan="6">${esc(title)}</td></tr>`;
-    }
-    const services = SERVICES.filter(s => v.services.includes(s.key)).map(s => {
-      const state = v[`${s.key}_state`];
-      if (state === 'done') return `<span class="done">✓ ${esc(s.label)} <small>(${esc(nameOf(v[`${s.key}_by`]))})</small></span>`;
-      return `<span>☐ ${esc(s.label)}${state === 'doing' ? ` <small>(started: ${esc(nameOf(v[`${s.key}_by`]))})</small>` : ''}</span>`;
-    }).join('') || '<span class="muted">No services</span>';
-    const notes = [
-      clean(v.notes),
-      clean(v.mechanical_notes) && `Mechanical: ${clean(v.mechanical_notes)}`,
-      clean(v.vrt_nct) && `VRT/NCT: ${clean(v.vrt_nct)}`,
-    ].filter(Boolean).map(esc).join('<br>');
-    const plates = [v.reg_ie, v.reg_imp].map(clean).filter(Boolean).map(esc).join('<br>');
-    const car = [v.make, v.model].map(clean).filter(Boolean).join(' ');
-    rows += `<tr>
-      <td class="num">${++n}</td>
-      <td class="plate-cell">${plates}${v.urgent ? '<div class="urgent-tag">URGENT</div>' : ''}</td>
-      <td><strong>${esc(car || 'Unknown vehicle')}</strong>${clean(v.color) ? `<br>${esc(v.color)}` : ''}${clean(v.seller) ? `<br><small>Sold by ${esc(v.seller)}</small>` : ''}</td>
-      <td>${esc(deliveryLabel(v) || '—')}<br><small>${v.stock_status === 'due_in' ? '<strong>NOT ON SITE YET</strong>' : 'On site'}</small></td>
-      <td class="svc-cell">${services}</td>
-      <td class="notes-cell">${notes}</td>
-    </tr>`;
-  }
-
+// rows: [{ group?: title } | { cells: [html…] }]
+function printDoc({ title, summary, how, columns, rows }) {
   const now = new Date();
+  let n = 0;
+  const body = rows.map(r => r.group
+    ? `<tr class="group"><td colspan="${columns.length + 1}">${esc(r.group)}</td></tr>`
+    : `<tr><td class="num">${++n}</td>${r.cells.map(c => `<td${c.cls ? ` class="${c.cls}"` : ''}>${c.html}</td>`).join('')}</tr>`).join('');
   $('#printSheet').innerHTML = `
     <header>
-      <div><h1>M6 Motors · Sold cars</h1>
-        <p>${esc(now.toLocaleDateString('en-IE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }))} · ${cars.length} car${cars.length === 1 ? '' : 's'} to prepare</p></div>
-      <p class="how">Work top to bottom. Tick ☐ when a job is done — and tap it in the app too.</p>
+      <div><h1>M6 Motors · ${esc(title)}</h1>
+        <p>${esc(now.toLocaleDateString('en-IE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }))} · ${esc(summary)}</p></div>
+      <p class="how">${esc(how)}</p>
     </header>
     <table>
-      <thead><tr><th>#</th><th>Plate</th><th>Car</th><th>Delivery</th><th>Jobs</th><th>Notes</th></tr></thead>
-      <tbody>${rows}</tbody>
+      <thead><tr><th>#</th>${columns.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead>
+      <tbody>${body}</tbody>
     </table>
     <footer>Printed ${esc(fmtDate(now.toISOString()))} by ${esc(S.me?.display_name ?? '')}</footer>`;
 
@@ -574,18 +563,86 @@ function printSoldList() {
   window.print();
 }
 
-// From "To deliver": open the car's full card in In prep and highlight it.
-function openInPrep(id) {
-  S.onlyMine = false;
-  $('#onlyMine').checked = false;
-  switchTab('in_prep');
-  const card = document.querySelector(`.card[data-id="${id}"]`);
-  if (!card) return;
-  card.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  card.classList.add('flash');
-  setTimeout(() => card.classList.remove('flash'), 1800);
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+// Daily job sheet: every sold car not yet delivered (wherever it is right
+// now), overdue → today → tomorrow → later → no date; urgent first per day.
+function printSoldList() {
+  const cars = [...S.vehicles.values()].filter(isSold);
+  if (!cars.length) return toast('No sold cars waiting for delivery.');
+  const due = d => d ?? '9999-12-31';
+  cars.sort((a, b) => due(a.delivery_date).localeCompare(due(b.delivery_date)) || (b.urgent - a.urgent)
+    || clean(a.delivery_time).localeCompare(clean(b.delivery_time)));
+  const rows = [];
+  let current = null;
+  for (const v of cars) {
+    const g = deliveryGroup(v);
+    if (g.key !== current) { current = g.key; rows.push({ group: g.title }); }
+    const where = v.hold === 'dent' ? '<strong>AT DENT</strong>' : v.hold === 'loan' ? '<strong>ON LOAN</strong>'
+      : v.stock_status === 'due_in' ? '<strong>NOT ON SITE YET</strong>' : 'On site';
+    const notes = [clean(v.notes), clean(v.mechanical_notes) && `Mechanical: ${clean(v.mechanical_notes)}`,
+      clean(v.vrt_nct) && `VRT/NCT: ${clean(v.vrt_nct)}`, v.hold === 'dent' && clean(v.dent_notes) && `Dent: ${clean(v.dent_notes)}`]
+      .filter(Boolean).map(esc).join('<br>');
+    rows.push({ cells: [
+      { html: plateCell(v), cls: 'plate-cell' },
+      { html: `${carCell(v)}${clean(v.seller) ? `<br><small>Sold by ${esc(v.seller)}</small>` : ''}` },
+      { html: `${esc(deliveryLabel(v) || '—')}<br><small>${where}</small>` },
+      { html: jobsCell(v), cls: 'svc-cell' },
+      { html: notes, cls: 'notes-cell' },
+    ] });
+  }
+  printDoc({
+    title: 'Sold cars', summary: `${plural(cars.length, 'car')} to prepare`,
+    how: 'Work top to bottom. Tick ☐ when a job is done — and tap it in the app too.',
+    columns: ['Plate', 'Car', 'Delivery', 'Jobs', 'Notes'], rows,
+  });
 }
 
+function printDentList() {
+  const cars = [...S.vehicles.values()].filter(v => tabOf(v) === 'dent')
+    .sort((a, b) => (isSold(b) - isSold(a)) || new Date(a.dent_since ?? 0) - new Date(b.dent_since ?? 0));
+  if (!cars.length) return toast('No cars waiting for dent repair.');
+  printDoc({
+    title: 'Dent repairs', summary: plural(cars.length, 'car'),
+    how: 'Sold cars first. Tick ☐ when the repair is done — then tap “Dent done” in the app.',
+    columns: ['Plate', 'Car', 'What to fix', 'Since', 'Sold / delivery', 'Done'],
+    rows: cars.map(v => ({ cells: [
+      { html: plateCell(v), cls: 'plate-cell' },
+      { html: carCell(v) },
+      { html: esc(v.dent_notes || '—').replace(/\n/g, '<br>'), cls: 'notes-cell' },
+      { html: esc(v.dent_since ? fmtDate(v.dent_since) : '—') },
+      { html: isSold(v) ? `<strong>SOLD</strong><br>${esc(deliveryLabel(v) || 'No date')}` : 'Stock' },
+      { html: '<span class="tick">☐</span>' },
+    ] })),
+  });
+}
+
+function printLoanList() {
+  const cars = [...S.vehicles.values()].filter(v => tabOf(v) === 'loan')
+    .sort((a, b) => (a.loan_due ?? '9999').localeCompare(b.loan_due ?? '9999'));
+  if (!cars.length) return toast('No cars out on loan.');
+  printDoc({
+    title: 'Loan cars', summary: plural(cars.length, 'car') + ' out',
+    how: 'Earliest return first. Overdue cars are marked.',
+    columns: ['Plate', 'Car', 'Customer', 'Phone', 'Out since', 'Back by'],
+    rows: cars.map(v => ({ cells: [
+      { html: plateCell(v), cls: 'plate-cell' },
+      { html: carCell(v) },
+      { html: `<strong>${esc(v.loan_to || '—')}</strong>` },
+      { html: esc(v.loan_phone || '—') },
+      { html: esc(v.loan_since ? fmtDate(v.loan_since) : '—') },
+      { html: v.loan_due ? `${esc(dayName(v.loan_due))}${dayDiff(v.loan_due) < 0 ? '<br><strong>OVERDUE</strong>' : ''}` : '—' },
+    ] })),
+  });
+}
+
+function printCurrentList() {
+  ({ sold: printSoldList, dent: printDentList, loan: printLoanList })[S.tab]?.();
+}
+
+// ---------------------------------------------------------------------
+// Card actions
+// ---------------------------------------------------------------------
 async function onListClick(e) {
   const btn = e.target.closest('[data-act]');
   if (!btn) return;
@@ -594,11 +651,12 @@ async function onListClick(e) {
   if (!v) return;
   const act = btn.dataset.act;
 
-  if (act === 'goto') return openInPrep(v.id);
   if (act === 'svc') return cycleService(v, btn.dataset.key, btn);
   if (act === 'edit') return openVehicleForm({ vehicle: v });
   if (act === 'sell') return isAdmin() && openVehicleForm({ vehicle: v, convert: true });
   if (act === 'photo') return openPhoto(v);
+  if (act === 'loan' || act === 'dent') return openHoldForm(v, act);
+  if (act === 'release') return releaseHold(v);
 
   if (act === 'deliver') {
     if (!v.done_at && !confirmTap(btn, 'Not finished — tap again')) return;
@@ -616,6 +674,13 @@ async function onListClick(e) {
       toast('Vehicle removed');
     } catch (err) { toast(errorText(err), { error: true }); }
   }
+}
+
+// When a change moves the car to another tab, say where it went.
+function announceMove(before, after) {
+  const from = tabOf(before), to = tabOf(after);
+  if (from === to) return;
+  toast(`Moved to ${TAB_TITLE[to]}`, { action: { label: 'Show', run: () => switchTab(to) } });
 }
 
 async function cycleService(v, key, btn) {
@@ -637,7 +702,8 @@ async function cycleService(v, key, btn) {
   });
   renderAll();
   try {
-    await updateVehicle(v.id, { [`${key}_state`]: next });
+    const saved = await updateVehicle(v.id, { [`${key}_state`]: next });
+    announceMove(before, saved);
   } catch (err) {
     S.vehicles.set(v.id, before);
     toast(errorText(err), { error: true });
@@ -652,8 +718,76 @@ async function setStatus(v, status, { undo = false } = {}) {
     if (status === 'delivered') {
       toast('Marked as delivered', undo ? { action: { label: 'Undo', run: () => setStatus(v, 'in_prep') } } : {});
     } else {
-      toast('Moved back to In prep');
+      toast('Moved back to Sold');
     }
+  } catch (err) { toast(errorText(err), { error: true }); }
+}
+
+// Loan (customer courtesy car) and Dent (paintless dent repair) take a car
+// out of Stock/Sold until someone taps Returned / Dent done.
+const HOLD_FIELDS = {
+  loan: ['loan_to', 'loan_phone', 'loan_due', 'loan_since'],
+  dent: ['dent_notes', 'dent_since'],
+};
+
+function openHoldForm(v, kind) {
+  const loan = kind === 'loan';
+  const editing = v.hold === kind;
+  const car = [v.make, v.model].map(clean).filter(Boolean).join(' ');
+  const sheet = openSheet(`<form class="form" id="holdForm" novalidate>
+    ${sheetHead(loan ? (editing ? 'Loan details' : 'Loan car to a customer') : (editing ? 'Dent details' : 'Send to Dent'))}
+    <div class="hold-car">${plateHTML(v)}<span class="muted">${esc(car)}</span></div>
+    ${loan ? `
+      <label>Customer name<input name="loan_to" value="${esc(v.loan_to)}" autocapitalize="words" required></label>
+      <label>Phone<input name="loan_phone" type="tel" value="${esc(v.loan_phone)}" inputmode="tel"></label>
+      <label>Back by<input name="loan_due" type="date" value="${esc(v.loan_due)}"></label>`
+    : `<label>What needs fixing<textarea name="dent_notes" rows="3" placeholder="e.g. rear left door, small dent on bonnet">${esc(v.dent_notes)}</textarea></label>`}
+    <p class="form-error" id="holdError" hidden></p>
+    <div class="sheet-actions">
+      <button type="button" class="btn ghost" data-close>Cancel</button>
+      <button type="submit" class="btn primary">${editing ? 'Save' : loan ? 'Loan car' : 'Send to Dent'}</button>
+    </div>
+  </form>`);
+  const form = $('#holdForm', sheet);
+  form.onsubmit = async e => {
+    e.preventDefault();
+    const f = form.elements;
+    const now = new Date().toISOString();
+    const patch = loan
+      ? { hold: 'loan', loan_to: clean(f.loan_to.value), loan_phone: clean(f.loan_phone.value),
+          loan_due: f.loan_due.value || null, loan_since: editing ? v.loan_since : now }
+      : { hold: 'dent', dent_notes: clean(f.dent_notes.value), dent_since: editing ? v.dent_since : now };
+    if (loan && !patch.loan_to) {
+      const el = $('#holdError', form); el.textContent = 'Enter the customer’s name.'; el.hidden = false;
+      return;
+    }
+    const btn = form.querySelector('[type=submit]');
+    btn.disabled = true;
+    try {
+      const saved = await updateVehicle(v.id, patch);
+      closeSheet();
+      renderAll();
+      if (editing) toast('Saved');
+      else announceMove(v, saved);
+    } catch (err) {
+      btn.disabled = false;
+      const el = $('#holdError', form); el.textContent = errorText(err); el.hidden = false;
+    }
+  };
+}
+
+async function releaseHold(v) {
+  const kind = v.hold;
+  const patch = { hold: null };
+  for (const k of HOLD_FIELDS[kind] ?? []) patch[k] = k.endsWith('_since') || k === 'loan_due' ? null : '';
+  const undo = { hold: kind };
+  for (const k of HOLD_FIELDS[kind] ?? []) undo[k] = v[k];
+  try {
+    const saved = await updateVehicle(v.id, patch);
+    renderAll();
+    toast(`${kind === 'loan' ? 'Returned' : 'Dent done'} — back in ${TAB_TITLE[tabOf(saved)]}`, {
+      action: { label: 'Undo', run: async () => { await updateVehicle(v.id, undo); renderAll(); } },
+    });
   } catch (err) { toast(errorText(err), { error: true }); }
 }
 
@@ -872,7 +1006,7 @@ function openVehicleForm({ vehicle = null, sold = false, convert = false } = {})
       }
       await refreshPhotoUrls();
       closeSheet();
-      if (saved.status !== S.tab) switchTab(saved.status);
+      if (tabOf(saved) !== S.tab) switchTab(tabOf(saved));
       renderAll();
       toast(convert ? 'Marked as sold — now in prep' : isNew ? 'Vehicle added' : 'Saved');
     } catch (err) {
@@ -1404,7 +1538,7 @@ function wireUi() {
   // A tapped notification opens the app on its tab (e.g. ?tab=stock)
   const linkTab = new URLSearchParams(location.search).get('tab');
   if (TAB_TITLE[linkTab]) S.tab = linkTab;
-  if (!TAB_TITLE[S.tab]) S.tab = 'in_prep';
+  if (!TAB_TITLE[S.tab]) S.tab = 'stock';
   navigator.serviceWorker?.addEventListener('message', e => {
     if (e.data?.type !== 'open') return;
     const tab = new URL(e.data.url).searchParams.get('tab');
@@ -1457,7 +1591,7 @@ function wireUi() {
   $('#search').addEventListener('input', e => { S.search = e.target.value; renderList(); });
   $('#onlyMine').addEventListener('change', e => { S.onlyMine = e.target.checked; renderList(); });
   $('#purgeBtn').addEventListener('click', purgeOld);
-  $('#printSoldBtn').addEventListener('click', printSoldList);
+  $('#printBtn').addEventListener('click', printCurrentList);
   $('#fab').addEventListener('click', () => (S.tab === 'stock' ? openVehicleForm() : openSoldPicker()));
   $('#list').addEventListener('click', onListClick);
 

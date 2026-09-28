@@ -13,8 +13,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <!-- Bump ?v= after changing these files so phones load the new version -->
-  <link rel="stylesheet" href="styles.css?v=10">
-  <script type="module" src="app.js?v=10"></script>
+  <link rel="stylesheet" href="styles.css?v=11">
+  <script type="module" src="app.js?v=11"></script>
 </head>
 <body>
   <!-- Shown until config.js is filled in -->
@@ -57,8 +57,10 @@
     <main id="mainView">
       <nav class="tabs" role="tablist">
         <button type="button" role="tab" data-tab="stock">Stock <span class="count"></span></button>
-        <button type="button" role="tab" data-tab="in_prep">In prep <span class="count"></span></button>
-        <button type="button" role="tab" data-tab="schedule" title="Deliveries due today">To deliver <span class="count"></span></button>
+        <button type="button" role="tab" data-tab="in_prep" title="Cars someone is working on now">In prep <span class="count"></span></button>
+        <button type="button" role="tab" data-tab="sold" title="Sold, waiting for delivery">Sold <span class="count"></span></button>
+        <button type="button" role="tab" data-tab="dent">Dent <span class="count"></span></button>
+        <button type="button" role="tab" data-tab="loan" title="Cars on loan to customers">Loan <span class="count"></span></button>
         <button type="button" role="tab" data-tab="delivered">Delivered <span class="count"></span></button>
       </nav>
       <div id="pushBanner" class="push-banner" hidden></div>
@@ -67,7 +69,7 @@
         <label id="onlyMineWrap" class="switch" hidden>
           <input type="checkbox" id="onlyMine"><span class="track"></span> Only pending for me
         </label>
-        <button id="printSoldBtn" type="button" class="btn small" hidden>🖨 Print sold list</button>
+        <button id="printBtn" type="button" class="btn small" hidden>🖨 Print list</button>
         <button id="purgeBtn" type="button" class="btn ghost danger small admin-only" hidden>Delete records older than 30 days</button>
       </div>
       <div id="list" class="list"><p class="empty">Loading…</p></div>
