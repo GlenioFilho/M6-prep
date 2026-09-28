@@ -8,10 +8,14 @@ const BUCKET = 'vehicle-photos';
 const PURGE_DAYS = 30;
 
 const SERVICES = [
-  { key: 'first',   label: 'First Clean', role: 'firstClean' },
-  { key: 'full',    label: 'Full Valet',  role: 'fullValet', commission: true },
-  { key: 'polish',  label: 'Polish',      role: 'polish' },
-  { key: 'decrome', label: 'Decrome',     role: null },
+  // Keys are stored in the database; labels can change freely.
+  // role: team allowed to mark it (null = anyone on staff).
+  { key: 'first',      label: 'First Clean / Tar Remove', role: 'firstClean' },
+  { key: 'decrome',    label: 'Window Tint / Dechrome',   role: null },
+  { key: 'polish',     label: 'Polish / Compound',        role: 'polish' },
+  { key: 'full',       label: 'Full Valet',               role: 'fullValet', commission: true },
+  { key: 'windscreen', label: 'Windscreen',               role: null },
+  { key: 'repair',     label: 'Repair / Body Shop',       role: null },
 ];
 const SERVICE = Object.fromEntries(SERVICES.map(s => [s.key, s]));
 const ROLES = SERVICES.filter(s => s.role);
@@ -195,7 +199,7 @@ const nameOf = id => S.profiles.get(id)?.display_name || 'Someone';
 
 function canMark(key) {
   if (!S.me) return false;
-  if (isAdmin() || key === 'decrome') return true;
+  if (isAdmin() || !SERVICE[key].role) return true;
   return S.team[SERVICE[key].role]?.has(S.me.id) ?? false;
 }
 
@@ -1106,8 +1110,8 @@ function renderTeam() {
   $('#teamView').innerHTML = `
     ${ROLES.map(roleBlock).join('')}
     <div class="panel">
-      <h2>Decrome <span class="badge grey">Open</span></h2>
-      <p class="muted">Anyone on staff can mark Decrome.</p>
+      <h2>Open to everyone <span class="badge grey">Open</span></h2>
+      <p class="muted">Anyone on staff can mark ${esc(SERVICES.filter(s => !s.role).map(s => s.label).join(', '))}.</p>
     </div>
     <div class="panel" id="staffPanel">
       <h2>Staff</h2>

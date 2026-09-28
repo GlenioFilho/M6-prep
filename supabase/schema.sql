@@ -68,13 +68,23 @@ create table if not exists public.team_members (
   primary key (role, user_id)
 );
 
+-- Every service a vehicle can need. Labels live in the app:
+--   first = First Clean / Tar Remove, decrome = Window Tint / Dechrome,
+--   polish = Polish / Compound, full = Full Valet, windscreen = Windscreen,
+--   repair = Repair / Body Shop
+create or replace function public.service_keys() returns text[]
+language sql immutable as $$
+  select array['first', 'full', 'polish', 'decrome', 'windscreen', 'repair']
+$$;
+
 -- Can the current user change the state of a service?
--- Admins: always. Decrome: any staff member. Others: members of that role.
+-- Admins: always. First Clean / Full Valet / Polish: members of that team.
+-- Everything else (Dechrome, Windscreen, Repair): any staff member.
 create or replace function public.can_mark(service text) returns boolean
 language sql stable security definer set search_path = public as $$
   select public.is_staff() and (
     public.is_admin()
-    or service = 'decrome'
+    or service not in ('first', 'full', 'polish')
     or exists (
       select 1 from team_members t
       where t.user_id = auth.uid()
@@ -104,7 +114,7 @@ create table if not exists public.vehicles (
 
   -- Which services this vehicle needs
   services         text[] not null default '{}'
-                   check (services <@ array['first', 'full', 'polish', 'decrome']),
+                   check (services <@ array['first', 'full', 'polish', 'decrome', 'windscreen', 'repair']),
 
   -- Per-service state (flat columns; kept correct by vehicles_guard)
   first_state      text not null default 'pending' check (first_state   in ('pending', 'doing', 'done')),
@@ -119,6 +129,12 @@ create table if not exists public.vehicles (
   decrome_state    text not null default 'pending' check (decrome_state in ('pending', 'doing', 'done')),
   decrome_by       uuid references public.profiles(id) on delete set null,
   decrome_done_at  timestamptz,
+  windscreen_state   text not null default 'pending' check (windscreen_state in ('pending', 'doing', 'done')),
+  windscreen_by      uuid references public.profiles(id) on delete set null,
+  windscreen_done_at timestamptz,
+  repair_state     text not null default 'pending' check (repair_state  in ('pending', 'doing', 'done')),
+  repair_by        uuid references public.profiles(id) on delete set null,
+  repair_done_at   timestamptz,
 
   -- Sold vehicles only
   urgent           boolean not null default false,
@@ -168,7 +184,7 @@ declare
   ost      text;
   all_done boolean;
 begin
-  foreach k in array array['first', 'full', 'polish', 'decrome'] loop
+  foreach k in array public.service_keys() loop
     st  := n->>(k || '_state');
     ost := coalesce(o->>(k || '_state'), 'pending');
 
@@ -257,7 +273,7 @@ declare
   same boolean;
   uid  uuid;
 begin
-  foreach k in array array['first', 'full', 'polish', 'decrome'] loop
+  foreach k in array public.service_keys() loop
     nst  := n->>(k || '_state');
     ost  := coalesce(o->>(k || '_state'), 'pending');
     same := (o->>(k || '_by')) is not distinct from (n->>(k || '_by'))
