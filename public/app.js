@@ -25,7 +25,8 @@ const COLOURS = [
 ];
 const COLOUR_HEX = Object.fromEntries(COLOURS.map(([n, h]) => [n.toLowerCase(), h]));
 
-const TAB_TITLE = { stock: 'Stock', in_prep: 'In prep', delivered: 'Delivered' };
+// "schedule" (To deliver) is a view of the in_prep cars grouped by delivery date
+const TAB_TITLE = { stock: 'Stock', in_prep: 'In prep', schedule: 'To deliver', delivered: 'Delivered' };
 
 const ICON = {
   back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>',
@@ -54,6 +55,26 @@ function fmtDate(ts, withTime = true) {
   const d = new Date(ts);
   const date = d.toLocaleDateString('en-IE', { day: 'numeric', month: 'short' });
   return withTime ? `${date} ${d.toLocaleTimeString('en-IE', { hour: '2-digit', minute: '2-digit' })}` : date;
+}
+
+// Delivery dates are plain 'YYYY-MM-DD' strings in local time.
+function dayDiff(dateStr) {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  return Math.round((new Date(`${dateStr}T00:00`) - today) / 864e5);
+}
+
+function dayName(dateStr) {
+  const diff = dayDiff(dateStr);
+  if (diff === 0) return 'Today';
+  if (diff === 1) return 'Tomorrow';
+  if (diff === -1) return 'Yesterday';
+  return new Date(`${dateStr}T00:00`).toLocaleDateString('en-IE', { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
+// "Today · 5PM", "Fri 2 Oct", or the old free-text day for older records.
+function deliveryLabel(v) {
+  const day = v.delivery_date ? dayName(v.delivery_date) : clean(v.delivery_day);
+  return [day, clean(v.delivery_time)].filter(Boolean).join(' · ');
 }
 
 // "Ana Paula" → "ana.paula@m6.local". A full email (contains @) is used as-is.
@@ -300,8 +321,12 @@ function renderAll() {
 // Main list
 // ---------------------------------------------------------------------
 function renderTabs() {
-  const counts = { stock: 0, in_prep: 0, delivered: 0 };
-  for (const v of S.vehicles.values()) counts[v.status]++;
+  const counts = { stock: 0, in_prep: 0, schedule: 0, delivered: 0 };
+  for (const v of S.vehicles.values()) {
+    counts[v.status]++;
+    // To deliver: how many are due today (or overdue)
+    if (v.status === 'in_prep' && v.delivery_date && dayDiff(v.delivery_date) <= 0) counts.schedule++;
+  }
   for (const b of $$('.tabs button')) {
     b.setAttribute('aria-selected', b.dataset.tab === S.tab);
     $('.count', b).textContent = counts[b.dataset.tab];
@@ -320,7 +345,8 @@ function pendingForMe(v) {
 
 function visibleVehicles() {
   const q = norm(S.search);
-  let list = [...S.vehicles.values()].filter(v => v.status === S.tab);
+  const status = S.tab === 'schedule' ? 'in_prep' : S.tab;
+  let list = [...S.vehicles.values()].filter(v => v.status === status);
   if (q) {
     list = list.filter(v => [v.reg_ie, v.reg_imp, v.make, v.model, v.seller, `${v.make}${v.model}`].some(f => norm(f).includes(q)));
   }
@@ -328,7 +354,11 @@ function visibleVehicles() {
 
   const t = x => new Date(x ?? 0).getTime();
   if (S.tab === 'stock') list.sort((a, b) => t(b.created_at) - t(a.created_at));
-  if (S.tab === 'in_prep') list.sort((a, b) => (b.urgent - a.urgent) || (t(a.sold_at) - t(b.sold_at)));
+  // Urgent first, then soonest delivery date (no date last), then oldest sale
+  const due = v => v.delivery_date ?? '9999-12-31';
+  if (S.tab === 'in_prep' || S.tab === 'schedule') {
+    list.sort((a, b) => (b.urgent - a.urgent) || due(a).localeCompare(due(b)) || (t(a.sold_at) - t(b.sold_at)));
+  }
   if (S.tab === 'delivered') list.sort((a, b) => t(b.delivered_at) - t(a.delivered_at));
   return list;
 }
@@ -371,8 +401,9 @@ function cardHTML(v) {
   const chips = [];
   if (sold && v.urgent && v.status === 'in_prep') chips.push('<span class="chip urgent">URGENT</span>');
   if (sold) {
-    const when = [v.delivery_day, v.delivery_time].map(clean).filter(Boolean).join(' · ');
-    if (when && v.status === 'in_prep') chips.push(`<span class="chip">Delivery: ${esc(when)}</span>`);
+    const when = deliveryLabel(v);
+    const soon = v.delivery_date && dayDiff(v.delivery_date) <= 0;
+    if (when && v.status === 'in_prep') chips.push(`<span class="chip${soon ? ' warn' : ''}">Delivery: ${esc(when)}</span>`);
     if (v.status === 'in_prep') chips.push(v.stock_status === 'due_in' ? '<span class="chip warn">Due in</span>' : '<span class="chip">On site</span>');
   }
   if (v.status !== 'delivered' && v.services.length) {
@@ -415,17 +446,76 @@ function cardHTML(v) {
   </article>`;
 }
 
+// "To deliver": sold cars grouped by delivery day, each marked Ready or
+// showing which services are still missing. Tapping one opens it in In prep.
+function scheduleHTML(list) {
+  const groups = new Map();
+  const add = (key, title, cls, v) => {
+    if (!groups.has(key)) groups.set(key, { title, cls, items: [] });
+    groups.get(key).items.push(v);
+  };
+  const sorted = [...list].sort((a, b) =>
+    (a.delivery_date ?? '9999-12-31').localeCompare(b.delivery_date ?? '9999-12-31')
+    || clean(a.delivery_time).localeCompare(clean(b.delivery_time))
+    || (b.urgent - a.urgent));
+  for (const v of sorted) {
+    if (!v.delivery_date) { add('none', 'No delivery date yet', 'none', v); continue; }
+    const diff = dayDiff(v.delivery_date);
+    if (diff < 0) add('overdue', 'Overdue', 'overdue', v);
+    else if (diff === 0) add('today', 'Today', 'today', v);
+    else add(v.delivery_date, diff === 1 ? 'Tomorrow'
+      : new Date(`${v.delivery_date}T00:00`).toLocaleDateString('en-IE', { weekday: 'long', day: 'numeric', month: 'short' }), '', v);
+  }
+
+  const row = v => {
+    const waiting = v.services.filter(k => v[`${k}_state`] !== 'done').map(k => SERVICE[k].label);
+    const meta = [
+      v.delivery_date ? clean(v.delivery_time) : deliveryLabel(v),
+      v.delivery_date && dayDiff(v.delivery_date) < 0 ? `was due ${dayName(v.delivery_date)}` : '',
+      clean(v.seller) && `Sold by ${clean(v.seller)}`,
+      v.stock_status === 'due_in' ? 'Car not on site yet' : '',
+    ].filter(Boolean);
+    return `<div class="deliv${v.urgent ? ' urgent' : ''}" role="button" tabindex="0" data-id="${v.id}" data-act="goto">
+      <div class="deliv-main">
+        ${plateHTML(v)}
+        <div class="vehicle-name">${v.urgent ? '<span class="chip urgent">URGENT</span> ' : ''}${esc([v.make, v.model].map(clean).filter(Boolean).join(' ') || 'Unknown vehicle')}</div>
+        ${meta.length ? `<div class="deliv-meta">${esc(meta.join(' · '))}</div>` : ''}
+      </div>
+      <div class="deliv-status ${waiting.length ? 'waiting' : 'ready'}">
+        ${waiting.length ? `<strong>Not ready</strong><span>Waiting: ${esc(waiting.join(', '))}</span>` : `${ICON.check}<strong>Ready</strong>`}
+      </div>
+    </div>`;
+  };
+
+  return [...groups.values()].map(g => `<section class="deliv-group ${g.cls}">
+    <h3>${esc(g.title)} <span class="count">${g.items.length}</span></h3>
+    ${g.items.map(row).join('')}
+  </section>`).join('');
+}
+
 function renderList() {
   const list = visibleVehicles();
   const el = $('#list');
   if (!list.length) {
-    let msg = { stock: 'No vehicles in stock.', in_prep: 'Nothing in prep.', delivered: 'No deliveries yet.' }[S.tab];
+    let msg = { stock: 'No vehicles in stock.', in_prep: 'Nothing in prep.', schedule: 'No sold cars waiting for delivery.', delivered: 'No deliveries yet.' }[S.tab];
     if (S.search) msg = 'No vehicles match your search.';
     else if (S.tab === 'in_prep' && S.onlyMine) msg = 'Nothing pending for you. 👍';
     el.innerHTML = `<p class="empty">${msg}</p>`;
     return;
   }
-  el.innerHTML = list.map(cardHTML).join('');
+  el.innerHTML = S.tab === 'schedule' ? scheduleHTML(list) : list.map(cardHTML).join('');
+}
+
+// From "To deliver": open the car's full card in In prep and highlight it.
+function openInPrep(id) {
+  S.onlyMine = false;
+  $('#onlyMine').checked = false;
+  switchTab('in_prep');
+  const card = document.querySelector(`.card[data-id="${id}"]`);
+  if (!card) return;
+  card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  card.classList.add('flash');
+  setTimeout(() => card.classList.remove('flash'), 1800);
 }
 
 async function onListClick(e) {
@@ -436,6 +526,7 @@ async function onListClick(e) {
   if (!v) return;
   const act = btn.dataset.act;
 
+  if (act === 'goto') return openInPrep(v.id);
   if (act === 'svc') return cycleService(v, btn.dataset.key, btn);
   if (act === 'edit') return openVehicleForm({ vehicle: v });
   if (act === 'sell') return isAdmin() && openVehicleForm({ vehicle: v, convert: true });
@@ -620,9 +711,10 @@ function openVehicleForm({ vehicle = null, sold = false, convert = false } = {})
         <label class="pill"><input type="radio" name="stock_status" value="due_in" ${v.stock_status === 'due_in' ? 'checked' : ''}><span>Due in</span></label>
       </div>
       <div class="grid2">
-        <label>Delivery day<input name="delivery_day" value="${esc(v.delivery_day)}" placeholder="e.g. Friday"></label>
+        <label>Delivery date<input type="date" name="delivery_date" value="${esc(v.delivery_date)}"></label>
         <label>Delivery time<input name="delivery_time" value="${esc(v.delivery_time)}" placeholder="e.g. 5PM"></label>
       </div>
+      ${!v.delivery_date && clean(v.delivery_day) ? `<p class="hint">Previously noted as “${esc(v.delivery_day)}” — pick the date above.</p>` : ''}
       <label>Salesperson<input name="seller" value="${esc(v.seller)}" list="sellerList" autocapitalize="words"></label>
       <datalist id="sellerList">${sellers.map(s => `<option value="${esc(s)}">`).join('')}</datalist>
       <label>VRT / NCT<input name="vrt_nct" value="${esc(v.vrt_nct)}" placeholder="e.g. done, VRT pending, 12 Oct"></label>
@@ -682,7 +774,7 @@ function openVehicleForm({ vehicle = null, sold = false, convert = false } = {})
     if (soldFields) Object.assign(row, {
       urgent: f.urgent.checked,
       stock_status: form.querySelector('[name=stock_status]:checked')?.value ?? 'in_stock',
-      delivery_day: clean(f.delivery_day.value),
+      delivery_date: f.delivery_date.value || null,
       delivery_time: clean(f.delivery_time.value),
       seller: clean(f.seller.value),
       vrt_nct: clean(f.vrt_nct.value),

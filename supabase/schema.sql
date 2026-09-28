@@ -124,6 +124,7 @@ create table if not exists public.vehicles (
   urgent           boolean not null default false,
   delivery_day     text not null default '',
   delivery_time    text not null default '',
+  delivery_date    date,
   stock_status     text not null default 'in_stock' check (stock_status in ('in_stock', 'due_in')),
   seller           text not null default '',
   vrt_nct          text not null default '',
