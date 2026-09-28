@@ -130,7 +130,11 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--brand); out
   .clock span { font-size: 10.5px; }
   .brand span#viewTitle { display: none; }
   .brand strong { font-size: 14.5px; white-space: nowrap; }
-  .topbar { gap: 6px; }
+  .topbar { gap: 4px; }
+  .topbar .icon-btn { width: 34px; }
+  /* The logo already says "M6 Motors"; make room for the icons on small phones */
+  body.is-admin .brand { display: none; }
+  body.is-admin .clock { margin-left: auto; }
 }
 .avatar {
   width: 36px; height: 36px; flex: none; border-radius: 50%; border: 0; cursor: pointer;
@@ -423,6 +427,37 @@ table.compact th:last-child, table.compact td:last-child { text-align: left; }
   .dent-actions { justify-content: flex-end; }
 }
 .pill.all span { font-weight: 700; }
+
+/* ---------- Help button (bottom-left corner) ---------- */
+.help-fab {
+  position: fixed; left: max(16px, env(safe-area-inset-left)); bottom: max(18px, env(safe-area-inset-bottom));
+  z-index: 15; width: 48px; height: 48px; border-radius: 50%; border: 1px solid var(--border);
+  background: var(--surface); color: var(--text); cursor: pointer; display: grid; place-items: center;
+  box-shadow: 0 4px 14px rgba(0,0,0,.25);
+}
+.help-fab svg { width: 24px; height: 24px; }
+.help details { border-bottom: 1px solid var(--border); }
+.help summary { cursor: pointer; padding: 12px 2px; font-weight: 600; font-size: 15px; }
+.help-body { padding: 0 2px 12px; font-size: 14px; line-height: 1.5; }
+.help-body p { margin: 0 0 8px; }
+.help-body ul { margin: 0 0 8px; padding-left: 18px; }
+
+/* ---------- Supplies ---------- */
+.badge-host { position: relative; }
+.icon-badge {
+  position: absolute; top: 2px; right: 0; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px;
+  background: var(--accent); color: #fff; font-size: 10.5px; font-weight: 700; display: grid; place-items: center;
+}
+.supply-row { display: flex; gap: 10px; align-items: center; padding: 10px 0; border-top: 1px solid var(--border); }
+.supply-row:first-of-type { border-top: 0; }
+.supply-main { flex: 1; min-width: 0; }
+.supply-main strong { font-size: 15px; }
+.supply-qty { margin-left: 6px; font-weight: 600; color: var(--muted); }
+.supply-note { font-size: 13px; margin-top: 2px; overflow-wrap: anywhere; }
+.supply-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.supply-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.supply-row.done strong { text-decoration: line-through; opacity: .7; }
+@media (max-width: 520px) { .supply-row { flex-wrap: wrap; } .supply-actions { width: 100%; } }
 
 /* ---------- Notifications ---------- */
 .push-banner {

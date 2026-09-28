@@ -13,8 +13,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <!-- Bump ?v= after changing these files so phones load the new version -->
-  <link rel="stylesheet" href="styles.css?v=13">
-  <script type="module" src="app.js?v=13"></script>
+  <link rel="stylesheet" href="styles.css?v=14">
+  <script type="module" src="app.js?v=14"></script>
 </head>
 <body>
   <!-- Shown until config.js is filled in -->
@@ -49,6 +49,7 @@
         <span id="viewTitle">Vehicle prep</span>
       </div>
       <div id="clock" class="clock" aria-live="off"><strong></strong><span></span></div>
+      <button id="suppliesBtn" class="icon-btn badge-host" type="button" aria-label="Supplies" title="Supplies — ask for materials"><span id="suppliesBadge" class="icon-badge" hidden></span></button>
       <button id="teamBtn" class="icon-btn admin-only" type="button" aria-label="Team" title="Team"></button>
       <button id="reportBtn" class="icon-btn admin-only" type="button" aria-label="Pay report" title="Pay report"></button>
       <button id="meBtn" class="avatar" type="button" aria-label="Account" title="Account"></button>
@@ -75,6 +76,8 @@
 
     <section id="teamView" class="page" hidden></section>
     <section id="reportView" class="page" hidden></section>
+    <section id="suppliesView" class="page" hidden></section>
+    <button id="helpBtn" class="help-fab" type="button" aria-label="Help" title="How to use the app"></button>
   </div>
 
   <!-- Filled just before printing the daily sold-cars sheet -->

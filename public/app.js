@@ -37,6 +37,8 @@ const TAB_TITLE = { stock: 'Stock', in_prep: 'In prep', sold: 'Sold', dent: 'Den
 const ICON = {
   back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>',
   team: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.5 3.4-5.5 6.5-5.5s5.7 2 6.5 5.5"/><circle cx="17" cy="9" r="2.8"/><path d="M16.5 14.6c2.6.2 4.4 2 5 4.9"/></svg>',
+  box: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/></svg>',
+  help: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 2.6-3 4.5"/><circle cx="12" cy="18" r=".6" fill="currentColor"/></svg>',
   report: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>',
   plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
   lock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>',
@@ -219,7 +221,17 @@ async function loadAll() {
   S.me = S.profiles.get(S.session.user.id) ?? null;
   setTeam(t.data);
   S.vehicles = new Map(v.data.map(x => [x.id, x]));
-  await refreshPhotoUrls();
+  await Promise.all([refreshPhotoUrls(), loadSupplies()]);
+}
+
+// Supplies requested by the team. Loaded separately so the app still works
+// if the supplies table doesn't exist yet.
+async function loadSupplies() {
+  const since = new Date(Date.now() - 14 * 864e5).toISOString();
+  const { data, error } = await sb.from('supplies').select('*')
+    .or(`status.neq.done,updated_at.gte.${since}`).order('requested_at');
+  S.supplies = error ? [] : data;
+  S.suppliesReady = !error;
 }
 
 function setTeam(rows) {
@@ -263,6 +275,10 @@ function subscribe() {
       queueRender();
     })
     .on('postgres_changes', { event: '*', schema: 'public', table: 'team_members' }, reloadTeam)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'supplies' }, async () => {
+      await loadSupplies();
+      renderAll();
+    })
     .subscribe();
 }
 
@@ -300,19 +316,25 @@ function setView(view) {
   $('#mainView').hidden = view !== 'main';
   $('#teamView').hidden = view !== 'team';
   $('#reportView').hidden = view !== 'report';
+  $('#suppliesView').hidden = view !== 'supplies';
   $('#backBtn').hidden = view === 'main';
-  $('#viewTitle').textContent = { main: 'Vehicle prep', team: 'Team', report: 'Pay report' }[view];
+  $('#viewTitle').textContent = { main: 'Vehicle prep', team: 'Team', report: 'Pay report', supplies: 'Supplies' }[view];
   window.scrollTo(0, 0);
   if (view === 'team') renderTeam();
   if (view === 'report') renderReport();
+  if (view === 'supplies') renderSupplies();
 }
 
 function renderAll() {
   document.body.classList.toggle('is-admin', isAdmin());
   $('#meBtn').textContent = initials(S.me?.display_name);
+  const needed = (S.supplies ?? []).filter(s => s.status === 'needed').length;
+  $('#suppliesBadge').textContent = needed || '';
+  $('#suppliesBadge').hidden = !needed;
   renderTabs();
   renderList();
   if (S.view === 'team') renderTeam();
+  if (S.view === 'supplies') renderSupplies();
 }
 
 // ---------------------------------------------------------------------
@@ -1545,6 +1567,173 @@ async function renderPushBanner() {
     <button type="button" class="icon-btn" data-dismiss aria-label="Dismiss">${ICON.close}</button>`;
 }
 
+// ---------------------------------------------------------------------
+// Supplies: the team asks for materials; the boss prints the list
+// ---------------------------------------------------------------------
+const SUPPLY_STATUS = { needed: 'Needed', ordered: 'Ordered', done: 'Got it' };
+
+// Admins manage every request; others can change or remove their own.
+const canEditSupply = s => isAdmin() || s.requested_by === S.me?.id;
+
+function supplyRow(s) {
+  const mine = canEditSupply(s);
+  const meta = `${esc(nameOf(s.requested_by))} · ${esc(fmtDate(s.requested_at))}`
+    + (s.status !== 'needed' && s.updated_by ? ` — ${esc(SUPPLY_STATUS[s.status].toLowerCase())} by ${esc(nameOf(s.updated_by))}` : '');
+  const buttons = !mine ? '' : [
+    s.status === 'needed' && isAdmin() ? '<button class="btn small ghost" data-supply="ordered">Ordered</button>' : '',
+    s.status !== 'done' ? `<button class="btn small accent" data-supply="done">${ICON.check} Got it</button>` : '',
+    s.status === 'done' ? '<button class="btn small ghost" data-supply="needed">Need again</button>' : '',
+    s.status !== 'done' ? '<button class="btn small ghost danger" data-supply="delete" aria-label="Remove">✕</button>' : '',
+  ].join('');
+  return `<div class="supply-row ${s.status}" data-supply-id="${s.id}">
+    <div class="supply-main">
+      <strong>${esc(s.item)}</strong>${clean(s.qty) ? `<span class="supply-qty">× ${esc(s.qty)}</span>` : ''}
+      ${clean(s.note) ? `<div class="supply-note">${esc(s.note)}</div>` : ''}
+      <div class="supply-meta">${meta}</div>
+    </div>
+    <div class="supply-actions">${buttons}</div>
+  </div>`;
+}
+
+function renderSupplies() {
+  const view = $('#suppliesView');
+  if (!S.suppliesReady) {
+    view.innerHTML = '<div class="panel"><p class="muted">The supplies list isn’t set up yet (run 009_supplies.sql in Supabase).</p></div>';
+    return;
+  }
+  const by = st => S.supplies.filter(s => s.status === st);
+  const pastItems = [...new Set(S.supplies.map(s => clean(s.item)).filter(Boolean))].sort();
+  const section = (st, title, empty) => {
+    const items = by(st);
+    return `<div class="panel">
+      <h2>${title} <span class="badge${st === 'needed' ? '' : ' grey'}">${items.length}</span></h2>
+      ${items.length ? items.map(supplyRow).join('') : `<p class="muted">${empty}</p>`}
+    </div>`;
+  };
+  view.innerHTML = `
+    <form class="panel form" id="supplyForm" autocomplete="off">
+      <h2>Ask for supplies</h2>
+      <p class="muted">Running low on something for the valet? Add it here — the manager sees it and prints the list.</p>
+      <label>What do you need?<input name="supply_item" list="supplyItems" placeholder="e.g. Snow foam 5L, microfibre cloths" required></label>
+      <datalist id="supplyItems">${pastItems.map(i => `<option value="${esc(i)}">`).join('')}</datalist>
+      <div class="grid2">
+        <label>How many?<input name="qty" placeholder="e.g. 2, 1 box"></label>
+        <label>Note (optional)<input name="note" placeholder="brand, size, urgent…"></label>
+      </div>
+      <div class="sheet-actions" style="position:static"><button type="submit" class="btn primary">${ICON.plus} Add to list</button></div>
+    </form>
+    <div class="report-actions no-print"><button type="button" class="btn" id="printSuppliesBtn">🖨 Print supplies list</button></div>
+    ${section('needed', 'Needed', 'Nothing needed right now. 👍')}
+    ${section('ordered', 'Ordered', 'Nothing on order.')}
+    ${section('done', 'Got it (last 14 days)', 'Nothing received recently.')}`;
+}
+
+async function onSuppliesSubmit(e) {
+  if (e.target.id !== 'supplyForm') return;
+  e.preventDefault();
+  const f = e.target.elements;
+  // (a field can't be called "item": form.elements.item is a built-in method)
+  const row = { item: clean(f.supply_item.value), qty: clean(f.qty.value), note: clean(f.note.value) };
+  if (!row.item) return;
+  const btn = e.target.querySelector('[type=submit]');
+  btn.disabled = true;
+  const { error } = await sb.from('supplies').insert(row);
+  btn.disabled = false;
+  if (error) return toast(errorText(error), { error: true });
+  await loadSupplies();
+  renderAll();
+  toast('Added to the supplies list');
+}
+
+async function onSuppliesClick(e) {
+  if (e.target.closest('#printSuppliesBtn')) return printSuppliesList();
+  const btn = e.target.closest('[data-supply]');
+  if (!btn) return;
+  const id = Number(btn.closest('[data-supply-id]').dataset.supplyId);
+  const action = btn.dataset.supply;
+  if (action === 'delete' && !confirmTap(btn, 'Remove?')) return;
+  const q = sb.from('supplies');
+  const { error } = action === 'delete' ? await q.delete().eq('id', id) : await q.update({ status: action }).eq('id', id);
+  if (error) return toast(errorText(error), { error: true });
+  await loadSupplies();
+  renderAll();
+}
+
+function printSuppliesList() {
+  const items = S.supplies.filter(s => s.status !== 'done');
+  if (!items.length) return toast('Nothing on the supplies list.');
+  const rows = [];
+  for (const st of ['needed', 'ordered']) {
+    const group = items.filter(s => s.status === st);
+    if (!group.length) continue;
+    rows.push({ group: `${SUPPLY_STATUS[st]} (${group.length})` });
+    for (const s of group) rows.push({ cells: [
+      { html: `<strong>${esc(s.item)}</strong>` },
+      { html: esc(s.qty || '—') },
+      { html: esc(s.note || ''), cls: 'notes-cell' },
+      { html: `${esc(nameOf(s.requested_by))}<br><small>${esc(fmtDate(s.requested_at))}</small>` },
+      { html: '<span class="tick">☐</span>' },
+    ] });
+  }
+  printDoc({
+    title: 'Supplies needed', summary: plural(items.length, 'item'),
+    how: 'Tick ☐ when bought — then tap “Got it” in the app.',
+    columns: ['Item', 'Qty', 'Note', 'Asked by', 'Bought'], rows,
+  });
+}
+
+// ---------------------------------------------------------------------
+// Help: a short guide from the "?" button in the corner
+// ---------------------------------------------------------------------
+const HELP = [
+  { id: 'jobs', title: 'Marking a job', tabs: ['stock', 'in_prep', 'sold'], body: `
+    <p>Each service on a car is a bubble:</p>
+    <ul><li><b>○ Grey</b> — still to do.</li>
+      <li><b>◐ Amber</b> — someone is working on it (shows their name).</li>
+      <li><b>✓ Green</b> — done (shows who and when).</li></ul>
+    <p><b>Tap once when you start</b>, <b>tap again when you finish</b>. The job goes in <b>your name</b> — that’s what the pay report counts, so always use your own login.</p>
+    <p>Tapped by mistake on a green one? Tap it twice to undo.</p>` },
+  { id: 'tabs', title: 'What the tabs mean', tabs: ['stock', 'in_prep', 'sold', 'delivered'], body: `
+    <ul><li><b>Stock</b> — cars not sold, nobody working on them.</li>
+      <li><b>In prep</b> — someone is working on it right now. When the job is done it goes back to Stock (or to Sold).</li>
+      <li><b>Sold</b> — sold cars waiting for delivery, by delivery day. <b>Sold cars come first.</b></li>
+      <li><b>Dent</b> — the written dent list.</li>
+      <li><b>Loan</b> — cars lent to customers.</li>
+      <li><b>Delivered</b> — history.</li></ul>` },
+  { id: 'sold', title: 'Sold cars & the daily sheet', tabs: ['sold'], body: `
+    <p>The Sold tab groups cars by delivery day: <b>Overdue</b>, <b>Today</b>, <b>Tomorrow</b>…</p>
+    <p>Each morning tap <b>🖨 Print sold list</b> for the day’s job sheet. Work top to bottom and tick ☐ as you go — and tap the job in the app too.</p>
+    <p>When the car goes to the customer, tap <b>Delivered</b>.</p>` },
+  { id: 'dent', title: 'Dent list', tabs: ['dent'], body: `
+    <p>Tap <b>Dent</b> on a car, write what needs fixing and pick the <b>dent day</b>. The car stays where it is — it’s just added to the list.</p>
+    <p>On the day, open the <b>Dent</b> tab and tap <b>🖨 Print dent list</b>. When a car is fixed, tap <b>Done</b>.</p>` },
+  { id: 'loan', title: 'Loan cars', tabs: ['loan'], body: `
+    <p>Tap <b>Loan</b> on a stock car, enter the customer’s name, phone and the day it comes back. It moves to the <b>Loan</b> tab (red when overdue).</p>
+    <p>When it’s back, tap <b>Returned</b>.</p>` },
+  { id: 'supplies', title: 'Asking for supplies', tabs: [], body: `
+    <p>Tap the <b>box icon</b> at the top, write what you need and how many, and tap <b>Add to list</b>.</p>
+    <p>The manager marks it <b>Ordered</b>, and <b>Got it</b> when it arrives. They can print the list with <b>🖨 Print supplies list</b>.</p>` },
+  { id: 'admin', title: 'Adding & selling cars (managers)', tabs: ['stock'], admin: true, body: `
+    <p><b>+ New stock</b> (Stock tab): plate, make, model, colour and <b>the services the car needs</b> (or <b>All</b>).</p>
+    <p><b>Mark sold</b> on a stock car, or <b>+ Sold</b> on the Sold tab: pick the delivery date and time.</p>
+    <p>The <b>chart icon</b> is the pay report: tap <b>Last week</b> to see who did what.</p>` },
+  { id: 'phone', title: 'Phone tips', tabs: [], body: `
+    <ul><li><b>iPhone:</b> Safari → Share → <b>Add to Home Screen</b>. Open it from the icon.</li>
+      <li><b>Notifications:</b> tap your initial (top right) → <b>Enable notifications</b> to hear about new stock.</li>
+      <li><b>Password:</b> tap your initial → <b>Change password</b>.</li>
+      <li>Something looks old? Close the app and open it again.</li></ul>` },
+];
+
+function openHelp() {
+  const topics = HELP.filter(h => !h.admin || isAdmin());
+  const first = S.view === 'supplies' ? 'supplies' : (topics.find(h => h.tabs.includes(S.tab))?.id ?? 'jobs');
+  openSheet(`${sheetHead('How to use the app')}
+    <div class="help">${topics.map(h => `<details ${h.id === first ? 'open' : ''}>
+      <summary>${esc(h.title)}</summary><div class="help-body">${h.body}</div>
+    </details>`).join('')}</div>
+    <p class="muted" style="font-size:13px;margin:14px 0 0">Still stuck? Ask the manager.</p>`);
+}
+
 function switchTab(tab) {
   S.tab = tab;
   try { localStorage.setItem('m6.tab', tab); } catch {}
@@ -1657,6 +1846,12 @@ function wireUi() {
 
   $('#teamBtn').addEventListener('click', () => setView('team'));
   $('#reportBtn').addEventListener('click', () => setView('report'));
+  $('#suppliesBtn').insertAdjacentHTML('afterbegin', ICON.box);
+  $('#suppliesBtn').addEventListener('click', () => setView('supplies'));
+  $('#suppliesView').addEventListener('submit', onSuppliesSubmit);
+  $('#suppliesView').addEventListener('click', onSuppliesClick);
+  $('#helpBtn').innerHTML = ICON.help;
+  $('#helpBtn').addEventListener('click', openHelp);
   $('#backBtn').addEventListener('click', () => setView('main'));
   $('#meBtn').addEventListener('click', openAccount);
   $('#teamView').addEventListener('click', onTeamClick);
