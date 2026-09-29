@@ -6,19 +6,19 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, LOGIN_DOMAIN, VAPID_PUBLIC_KEY } from 
 // ---------------------------------------------------------------------
 // Shown in the help sheet, so anyone can check their phone has the latest app.
 // Keep in step with the ?v= in index.html.
-const APP_VERSION = '32';
+const APP_VERSION = '31';
 const BUCKET = 'vehicle-photos';
 const PURGE_DAYS = 30;
 
 const SERVICES = [
   // Keys are stored in the database; labels can change freely.
   // role: team allowed to mark it (null = anyone on staff).
-  { key: 'first',      label: 'First Clean / Tar Remove', short: 'First Clean', role: 'firstClean' },
-  { key: 'decrome',    label: 'Window Tint / Dechrome',   short: 'Dechrome',    role: null },
-  { key: 'polish',     label: 'Polish / Compound',        short: 'Polish',      role: 'polish' },
-  { key: 'full',       label: 'Full Valet',               short: 'Full Valet',  role: 'fullValet', commission: true },
-  { key: 'windscreen', label: 'Windscreen',               short: 'Windscreen',  role: null },
-  { key: 'repair',     label: 'Repair / Body Shop',       short: 'Body Shop',   role: null },
+  { key: 'first',      label: 'First Clean / Tar Remove', role: 'firstClean' },
+  { key: 'decrome',    label: 'Window Tint / Dechrome',   role: null },
+  { key: 'polish',     label: 'Polish / Compound',        role: 'polish' },
+  { key: 'full',       label: 'Full Valet',               role: 'fullValet', commission: true },
+  { key: 'windscreen', label: 'Windscreen',               role: null },
+  { key: 'repair',     label: 'Repair / Body Shop',       role: null },
 ];
 const SERVICE = Object.fromEntries(SERVICES.map(s => [s.key, s]));
 const ROLES = SERVICES.filter(s => s.role);
@@ -380,10 +380,6 @@ function renderTabs() {
   badge.textContent = today;
   badge.title = `${today} to deliver today`;
   $('#purgeBtn').hidden = S.tab !== 'delivered';
-  const lb = $('#layoutBtn');
-  lb.hidden = S.tab === 'dent';
-  lb.textContent = layout() === 'table' ? '▦ Cards' : '☰ Table';
-  lb.title = layout() === 'table' ? 'Show cars as cards' : 'Show cars as a table, like the spreadsheet';
   const print = $('#printBtn');
   print.hidden = !['sold', 'dent', 'loan'].includes(S.tab);
   print.textContent = `🖨 Print ${TAB_TITLE[S.tab]?.toLowerCase()} list`;
@@ -438,15 +434,14 @@ function myServiceKeys() {
 
 // For people with no jobs ticked (managers, the sold-cars person): a small,
 // read-only line of where each job on the car stands — nothing to tap.
-function jobStatusHTML(v, { compact = false } = {}) {
+function jobStatusHTML(v) {
   const keys = SERVICES.map(s => s.key).filter(k => v.services.includes(k) || v[`${k}_state`] !== 'pending');
   if (!keys.length) return '';
-  return `<div class="job-status${compact ? ' compact' : ''}">${keys.map(k => {
+  return `<div class="job-status">${keys.map(k => {
     const st = v[`${k}_state`];
     const mark = { done: '✓', doing: '◐', pending: '○' }[st];
     const who = st === 'pending' ? '' : ` <em>${esc(nameOf(v[`${k}_by`]))}</em>`;
-    const name = compact ? SERVICE[k].short : SERVICE[k].label;
-    return `<span class="js ${st}" title="${esc(SERVICE[k].label)}">${mark} ${esc(name)}${who}</span>`;
+    return `<span class="js ${st}">${mark} ${esc(SERVICE[k].label)}${who}</span>`;
   }).join('')}</div>`;
 }
 
@@ -575,7 +570,20 @@ function cardHTML(v) {
     sold ? detailRow('Estimate', v.estimate) : '',
   ].join('');
 
-  return `<article class="card${isFlagged(v) ? ' urgent' : ''}" data-id="${v.id}">
+  const b = (act, label, cls = 'ghost') => `<button class="btn small ${cls}" data-act="${act}">${label}</button>`;
+  // Dent is for the people given "Can use Dent" on the Team screen (also enforced in the DB)
+  const dent = canDent() ? b('dent', inDent(v) ? 'Dent ✓' : 'Dent') : '';
+  const edit = isAdmin() ? b('edit', 'Edit') : '';  // editing car details is admin-only (also in the DB)
+  let actions;
+  if (tab === 'delivered') actions = b('reopen', 'Reopen');
+  else if (tab === 'loan') actions = edit + (isAdmin() ? b('loan', 'Loan details') + b('release', `${ICON.check} Returned`, 'accent') : '');
+  else if (sold) actions = edit + dent + readyButtons(v);
+  else actions = edit + (isAdmin() ? b('loan', 'Loan') : '') + dent + (isAdmin() ? b('sell', 'Mark sold', 'primary') : '');
+  const remove = isAdmin() && v.status !== 'delivered' ? `${b('remove', 'Remove', 'ghost danger')}<span class="spacer"></span>` : '';
+
+  // Red outline: urgent, going out today (or overdue), or a loan car that's late back
+  const flagged = (sold && (v.urgent || dueToday(v))) || (tab === 'loan' && v.loan_due && dayDiff(v.loan_due) < 0);
+  return `<article class="card${flagged ? ' urgent' : ''}" data-id="${v.id}">
     <div class="card-head">
       ${url ? `<img class="thumb" src="${esc(url)}" alt="" data-act="photo" loading="lazy">`
         : `<span class="thumb placeholder"${isAdmin() ? ' data-act="edit" title="Add a photo"' : ''}>${ICON.car}</span>`}
@@ -587,131 +595,15 @@ function cardHTML(v) {
     ${chips.length ? `<div class="chips">${chips.join('')}</div>` : ''}
     ${details ? `<dl class="details">${details}</dl>` : ''}
     ${clean(v.notes) ? `<div class="notes">${esc(v.notes)}</div>` : ''}
-    ${jobsHTML(v)}
+    ${myServiceKeys().length ? `<div class="services">${SERVICES
+      // Only the viewer's own jobs (see myServiceKeys); extras faded — delivered cars show what was done
+      .filter(s => myServiceKeys().includes(s.key))
+      .filter(s => v.status !== 'delivered' || !isExtra(v, s.key))
+      .map(s => serviceHTML(v, s.key)).join('')}</div>
+    ${otherJobsHTML(v)}` : jobStatusHTML(v)}
     ${sold ? readyStatusHTML(v) : ''}
-    <div class="card-actions">${actionsHTML(v)}</div>
+    <div class="card-actions">${remove}${actions}</div>
   </article>`;
-}
-
-// The buttons for a car (cards and table rows share them)
-function actionsHTML(v, { remove = true } = {}) {
-  const tab = tabOf(v);
-  const b = (act, label, cls = 'ghost') => `<button class="btn small ${cls}" data-act="${act}">${label}</button>`;
-  // Dent is for the people given "Can use Dent" on the Team screen (also enforced in the DB)
-  const dent = canDent() ? b('dent', inDent(v) ? 'Dent ✓' : 'Dent') : '';
-  const edit = isAdmin() ? b('edit', 'Edit') : '';  // editing car details is admin-only (also in the DB)
-  let actions;
-  if (tab === 'delivered') actions = b('reopen', 'Reopen');
-  else if (tab === 'loan') actions = edit + (isAdmin() ? b('loan', 'Loan details') + b('release', `${ICON.check} Returned`, 'accent') : '');
-  else if (isSold(v)) actions = edit + dent + readyButtons(v);
-  else actions = edit + (isAdmin() ? b('loan', 'Loan') : '') + dent + (isAdmin() ? b('sell', 'Mark sold', 'primary') : '');
-  const rm = remove && isAdmin() && v.status !== 'delivered' ? `${b('remove', 'Remove', 'ghost danger')}<span class="spacer"></span>` : '';
-  return rm + actions;
-}
-
-// Red outline: urgent, going out today (or overdue), or a loan car that's late back
-function isFlagged(v) {
-  return (isSold(v) && (v.urgent || dueToday(v))) || (tabOf(v) === 'loan' && !!v.loan_due && dayDiff(v.loan_due) < 0);
-}
-
-// The viewer's own job buttons, or the read-only summary for managers
-function jobsHTML(v, { compact = false } = {}) {
-  if (!myServiceKeys().length) return jobStatusHTML(v, { compact });
-  return `<div class="services${compact ? ' compact' : ''}">${SERVICES
-    // Only the viewer's own jobs (see myServiceKeys); extras faded — delivered cars show what was done
-    .filter(s => myServiceKeys().includes(s.key))
-    .filter(s => v.status !== 'delivered' || !isExtra(v, s.key))
-    .map(s => serviceHTML(v, s.key)).join('')}</div>
-  ${otherJobsHTML(v)}`;
-}
-
-// ---------------------------------------------------------------------
-// Table view: one row per car, like the owner's spreadsheet
-// ---------------------------------------------------------------------
-const LAYOUT_KEY = 'm6.layout';
-
-function layout() {
-  const saved = store.get(LAYOUT_KEY);
-  if (saved === 'table' || saved === 'cards') return saved;
-  return window.innerWidth >= 900 ? 'table' : 'cards';  // computers: table; phones: cards
-}
-
-const cell = (html, cls = '') => ({ html, cls });
-const text = v => esc(clean(v)) || '<span class="muted">—</span>';
-
-function readyCell(v) {
-  if (v.ready_state === 'done') return '<span class="st done">✓ Ready to go</span>';
-  if (v.ready_state === 'doing') return `<span class="st doing">◐ Prep · ${esc(nameOf(v.ready_by))}</span>`;
-  return '<span class="muted">—</span>';
-}
-
-function carCellHTML(v) {
-  const name = esc([v.make, v.model].map(clean).filter(Boolean).join(' ') || 'Unknown vehicle');
-  const tags = [
-    isSold(v) && tabOf(v) !== 'sold' ? '<span class="chip sold">SOLD</span>' : '',
-    isSold(v) && v.urgent ? '<span class="chip urgent">URGENT</span>' : '',
-    inDent(v) ? `<span class="chip hold">DENT</span>` : '',
-  ].join('');
-  return `<strong>${name}</strong>${clean(v.color) ? `<small>${esc(v.color)}</small>` : ''}${tags ? `<span class="row-tags">${tags}</span>` : ''}`;
-}
-
-// Columns per tab: [heading, v => cell]
-function tableColumns(tab) {
-  const reg = ['Reg', v => cell(plateHTML(v), 'reg')];
-  const car = ['Car', v => cell(carCellHTML(v), 'car')];
-  const notes = ['Notes', v => cell(text(v.notes), 'notes')];
-  const jobs = ['Jobs', v => cell(jobsHTML(v, { compact: true }), 'jobs')];
-  const actions = ['', v => cell(`<div class="row-actions">${actionsHTML(v, { remove: false })}</div>`, 'acts')];
-  const delivery = ['Delivery', v => cell(`${text(deliveryLabel(v))}`, dueToday(v) ? 'due' : '')];
-  const site = ['Site', v => cell(v.stock_status === 'due_in' ? '<span class="chip warn">Due in</span>' : 'On site')];
-  const sold = [
-    reg, car, delivery, site,
-    ['Seller', v => cell(text(v.seller))],
-    ['VRT / NCT', v => cell(text(v.vrt_nct))],
-    ['Mechanical', v => cell(text(v.mechanical_notes), 'notes')],
-    ['Estimate', v => cell(text(v.estimate))],
-    notes, jobs,
-    ['Status', v => cell(readyCell(v))],
-    actions,
-  ];
-  return {
-    sold,
-    in_prep: [reg, car, ['Delivery', v => cell(isSold(v) ? text(deliveryLabel(v)) : '<span class="muted">Stock</span>')], notes, jobs, actions],
-    stock: [reg, car, notes, jobs, actions],
-    loan: [reg, car,
-      ['Customer', v => cell(text(v.loan_to))],
-      ['Phone', v => cell(clean(v.loan_phone) ? `<a href="tel:${esc(clean(v.loan_phone).replace(/[^\d+]/g, ''))}">${esc(v.loan_phone)}</a>` : text(''))],
-      ['Back by', v => cell(v.loan_due ? esc(dayName(v.loan_due)) : text(''), v.loan_due && dayDiff(v.loan_due) < 0 ? 'due' : '')],
-      notes, actions],
-    delivered: [reg, car, ['Delivered', v => cell(esc(fmtDate(v.delivered_at)))], ['Seller', v => cell(text(v.seller))], notes, actions],
-  }[tab] ?? [reg, car, notes, jobs, actions];
-}
-
-function tableHTML(list) {
-  const cols = tableColumns(S.tab);
-  const row = v => `<tr class="${isFlagged(v) ? 'flag' : ''}" data-id="${v.id}">${cols.map(([, f]) => {
-    const c = f(v);
-    return `<td${c.cls ? ` class="${c.cls}"` : ''}>${c.html}</td>`;
-  }).join('')}</tr>`;
-  let body = '';
-  if (S.tab === 'sold') {
-    let current = null;
-    for (const v of list) {
-      const g = deliveryGroup(v);
-      if (g.key !== current) {
-        current = g.key;
-        const n = list.filter(x => deliveryGroup(x).key === g.key).length;
-        body += `<tr class="group ${g.cls}"><td colspan="${cols.length}">${esc(g.title)} <span class="count">${n}</span></td></tr>`;
-      }
-      body += row(v);
-    }
-  } else {
-    body = list.map(row).join('');
-  }
-  return `<div class="table-wrap"><table class="car-table">
-    <thead><tr>${cols.map(([h]) => `<th>${esc(h)}</th>`).join('')}</tr></thead>
-    <tbody>${body}</tbody>
-  </table></div>`;
 }
 
 // Delivery-day heading for sold cars (screen and printed list)
@@ -801,9 +693,7 @@ function renderList() {
     el.innerHTML = `<p class="empty">${msg}</p>`;
     return;
   }
-  if (S.tab === 'dent') el.innerHTML = dentHTML(list);
-  else if (layout() === 'table') el.innerHTML = tableHTML(list);
-  else el.innerHTML = S.tab === 'sold' ? soldHTML(list) : list.map(cardHTML).join('');
+  el.innerHTML = S.tab === 'sold' ? soldHTML(list) : S.tab === 'dent' ? dentHTML(list) : list.map(cardHTML).join('');
 }
 
 // ---------------------------------------------------------------------
@@ -2127,10 +2017,6 @@ function wireUi() {
   $('#search').addEventListener('input', e => { S.search = e.target.value; renderList(); });
   $('#purgeBtn').addEventListener('click', purgeOld);
   $('#printBtn').addEventListener('click', printCurrentList);
-  $('#layoutBtn').addEventListener('click', () => {
-    store.set(LAYOUT_KEY, layout() === 'table' ? 'cards' : 'table');
-    renderAll();
-  });
   $('#fab').addEventListener('click', () => (S.tab === 'stock' ? openVehicleForm() : openSoldPicker()));
   $('#list').addEventListener('click', onListClick);
 

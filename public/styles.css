@@ -468,49 +468,6 @@ table.compact th:last-child, table.compact td:last-child { text-align: left; }
   details.car-list > summary::-webkit-details-marker { display: none; }
 }
 
-/* ---------- Table view (one row per car, like the spreadsheet) ---------- */
-.list > .table-wrap { grid-column: 1 / -1; }
-.table-wrap { overflow-x: auto; background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); }
-.car-table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 760px; }
-.car-table th {
-  position: sticky; top: 0; z-index: 1; background: var(--surface-2); color: var(--muted);
-  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
-  text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border); white-space: nowrap;
-}
-.car-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; text-align: left; }
-.car-table th:last-child, .car-table td:last-child { text-align: right; }
-.car-table tbody tr:hover td { background: var(--surface-2); }
-.car-table tr.flag td { background: color-mix(in srgb, var(--urgent) 9%, transparent); }
-.car-table tr.flag td:first-child { box-shadow: inset 3px 0 0 var(--urgent); }
-.car-table tr.group td {
-  background: var(--bg); font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
-  color: var(--muted); padding: 10px 10px 6px;
-}
-.car-table tr.group td:last-child { text-align: left; }
-.car-table tr.group.today td { color: var(--text); }
-.car-table tr.group.overdue td { color: var(--urgent); }
-.car-table tr.group .count { font-size: 11px; padding: 0 6px; border-radius: 9px; background: var(--surface-2); border: 1px solid var(--border); color: var(--text); }
-.car-table td.reg .plates { flex-direction: column; align-items: flex-start; gap: 4px; }
-.car-table td.reg .plate { height: 22px; }
-.car-table td.reg .plate .reg { font-size: 16px; line-height: 20px; padding: 0 5px; }
-.car-table td.car { min-width: 150px; }
-.car-table td.car strong { display: block; font-size: 13.5px; }
-.car-table td.car small { display: block; color: var(--muted); font-size: 12px; }
-.row-tags { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 4px; }
-.row-tags .chip { font-size: 10px; padding: 1px 6px; }
-.car-table td.notes { max-width: 220px; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
-.car-table td.due { color: var(--urgent); font-weight: 700; }
-.car-table td.jobs { min-width: 170px; }
-.car-table .job-status.compact { background: none; padding: 0; gap: 2px 8px; font-size: 12px; }
-.car-table .services.compact .svc { min-height: 32px; padding: 4px 10px 4px 8px; }
-.car-table .services.compact .svc strong { font-size: 12px; }
-.car-table .other-jobs { margin: 4px 0 0; font-size: 11px; }
-.car-table .st { font-weight: 700; font-size: 12px; white-space: nowrap; }
-.car-table .st.done { color: var(--done-fg); }
-.car-table .st.doing { color: var(--doing-fg); }
-.row-actions { display: flex; gap: 4px; justify-content: flex-end; flex-wrap: nowrap; }
-.row-actions .spacer { display: none; }
-
 /* ---------- To deliver ---------- */
 .deliv-group { display: grid; gap: 8px; }
 .deliv-group h3 { margin: 6px 2px 0; font-size: 14px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); display: flex; align-items: center; gap: 6px; }
