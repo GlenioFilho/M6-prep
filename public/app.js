@@ -6,7 +6,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, LOGIN_DOMAIN, VAPID_PUBLIC_KEY } from 
 // ---------------------------------------------------------------------
 // Shown in the help sheet, so anyone can check their phone has the latest app.
 // Keep in step with the ?v= in index.html.
-const APP_VERSION = '35';
+const APP_VERSION = '36';
 const BUCKET = 'vehicle-photos';
 const PURGE_DAYS = 30;
 
@@ -1995,6 +1995,36 @@ function openHelp() {
     <p class="muted" style="font-size:13px;margin:14px 0 0">Still stuck? Ask the manager. · App version ${esc(APP_VERSION)}</p>`);
 }
 
+// Phones: swipe left / right on the list to go to the next / previous tab.
+// Only a clear sideways swipe counts, so scrolling up and down is unaffected.
+function wireSwipeTabs() {
+  const area = document;  // the whole screen, so short lists still swipe
+  let start = null;
+  area.addEventListener('touchstart', e => {
+    const t = e.touches[0];
+    const busy = S.view !== 'main' || $('#appScreen').hidden || e.touches.length > 1 || !$('#sheetBackdrop').hidden
+      || e.target.closest('input, textarea, select, .tabs');
+    start = busy ? null : { x: t.clientX, y: t.clientY, at: Date.now() };
+  }, { passive: true });
+  area.addEventListener('touchend', e => {
+    if (!start) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - start.x, dy = t.clientY - start.y;
+    const quick = Date.now() - start.at < 700;
+    start = null;
+    if (!quick || Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 2) return;
+    const tabs = $$('.tabs button').map(b => b.dataset.tab);
+    const next = tabs[tabs.indexOf(S.tab) + (dx < 0 ? 1 : -1)];
+    if (!next) return;
+    switchTab(next);
+    $(`.tabs [data-tab="${next}"]`).scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
+    const list = $('#list');
+    list.classList.remove('slide-left', 'slide-right');
+    void list.offsetWidth;  // restart the animation
+    list.classList.add(dx < 0 ? 'slide-left' : 'slide-right');
+  }, { passive: true });
+}
+
 function switchTab(tab) {
   S.tab = tab;
   try { localStorage.setItem('m6.tab', tab); } catch {}
@@ -2095,6 +2125,7 @@ function wireUi() {
   loginFields.remember.checked = store.get(REMEMBER_KEY) !== '0';
   if (savedLogin) loginFields.login.value = savedLogin;
 
+  wireSwipeTabs();
   $('.tabs').addEventListener('click', e => {
     const b = e.target.closest('[data-tab]');
     if (b) { switchTab(b.dataset.tab); window.scrollTo(0, 0); }
