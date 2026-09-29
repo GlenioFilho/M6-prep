@@ -6,7 +6,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, LOGIN_DOMAIN, VAPID_PUBLIC_KEY } from 
 // ---------------------------------------------------------------------
 // Shown in the help sheet, so anyone can check their phone has the latest app.
 // Keep in step with the ?v= in index.html.
-const APP_VERSION = '29';
+const APP_VERSION = '30';
 const BUCKET = 'vehicle-photos';
 const PURGE_DAYS = 30;
 
@@ -1331,8 +1331,8 @@ function personTags(p) {
   if (p.is_admin) tags.push('<span class="tag admin">Admin</span>');
   const jobs = SERVICES.filter(s => (p.services ?? []).includes(s.key)).map(s => s.label);
   if (jobs.length) tags.push(...jobs.map(j => `<span class="tag job">${esc(j)}</span>`));
-  if (p.handles_sold) tags.push('<span class="tag sold">Sold cars</span>');
-  if (p.sold_alerts) tags.push('<span class="tag alerts">🔔 Alerts</span>');
+  if (p.handles_sold) tags.push('<span class="tag sold">Prepares sold cars</span>');
+  if (p.sold_alerts) tags.push('<span class="tag alerts">🔔 Sold notifications</span>');
   if (p.can_dent) tags.push('<span class="tag dent">Dent</span>');
   if (!jobs.length && !p.handles_sold) tags.push('<span class="tag muted">Overview only</span>');
   return tags.join('');
@@ -1377,8 +1377,8 @@ function openPerson(id) {
     <div class="pills">${SERVICES.map(s => `<label class="pill"><input type="checkbox" data-svc="${s.key}" ${(p.services ?? []).includes(s.key) ? 'checked' : ''}><span>${esc(s.label)}</span></label>`).join('')}</div>
 
     <div class="section-label">Sold cars</div>
-    ${sw('data-flag="handles_sold"', p.handles_sold, 'Looks after sold cars', 'Start prep → Ready to go → Delivered.')}
-    ${sw('data-flag="sold_alerts"', p.sold_alerts, 'Sold alerts', 'Notification when prep starts or a car is ready, and the day’s list at 8am.')}
+    ${sw('data-flag="sold_alerts"', p.sold_alerts, '🔔 Sold car notifications', 'Only notifications — no buttons. When prep starts or a car is ready, and the day’s list at 8am.')}
+    ${sw('data-flag="handles_sold"', p.handles_sold, 'Start prep / Ready to go buttons', 'Only for the person who prepares sold cars (Ryann). Adds these buttons on every sold car.')}
 
     <div class="section-label">Dent</div>
     ${sw('data-flag="can_dent"', p.can_dent, 'Can use Dent', 'Add cars to the Dent list and mark them done.')}
