@@ -6,7 +6,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, LOGIN_DOMAIN, VAPID_PUBLIC_KEY } from 
 // ---------------------------------------------------------------------
 // Shown in the help sheet, so anyone can check their phone has the latest app.
 // Keep in step with the ?v= in index.html.
-const APP_VERSION = '36';
+const APP_VERSION = '37';
 const BUCKET = 'vehicle-photos';
 const PURGE_DAYS = 30;
 
@@ -701,15 +701,20 @@ const EMPTY = {
 };
 
 function renderList() {
-  const list = visibleVehicles();
-  const el = $('#list');
-  if (!list.length) {
-    let msg = EMPTY[S.tab];
-    if (S.search) msg = 'No vehicles match your search.';
-    el.innerHTML = `<p class="empty">${msg}</p>`;
-    return;
+  $('#list').innerHTML = listHTML(S.tab);
+}
+
+// The list for any tab (used to draw the neighbouring tab while swiping)
+function listHTML(tab) {
+  const current = S.tab;
+  S.tab = tab;
+  try {
+    const list = visibleVehicles();
+    if (!list.length) return `<p class="empty">${S.search ? 'No vehicles match your search.' : EMPTY[tab]}</p>`;
+    return tab === 'sold' ? soldHTML(list) : tab === 'dent' ? dentHTML(list) : list.map(cardHTML).join('');
+  } finally {
+    S.tab = current;
   }
-  el.innerHTML = S.tab === 'sold' ? soldHTML(list) : S.tab === 'dent' ? dentHTML(list) : list.map(cardHTML).join('');
 }
 
 // ---------------------------------------------------------------------
@@ -1995,33 +2000,76 @@ function openHelp() {
     <p class="muted" style="font-size:13px;margin:14px 0 0">Still stuck? Ask the manager. · App version ${esc(APP_VERSION)}</p>`);
 }
 
-// Phones: swipe left / right on the list to go to the next / previous tab.
-// Only a clear sideways swipe counts, so scrolling up and down is unaffected.
+// Phones: swipe left / right to go to the next / previous tab. The list
+// follows the finger and the neighbouring tab slides in beside it; let go past
+// a quarter of the screen (or flick) to switch, otherwise it springs back.
 function wireSwipeTabs() {
-  const area = document;  // the whole screen, so short lists still swipe
-  let start = null;
-  area.addEventListener('touchstart', e => {
+  const track = $('#listTrack');
+  let g = null;  // current gesture
+
+  const tabsInOrder = () => $$('.tabs button').map(b => b.dataset.tab);
+  const setX = (x, animate) => {
+    track.style.transition = animate ? 'transform .22s ease-out' : 'none';
+    track.style.transform = x ? `translate3d(${x}px, 0, 0)` : '';
+  };
+  const dropPeek = () => { $('#listPeek')?.remove(); };
+
+  document.addEventListener('touchstart', e => {
     const t = e.touches[0];
-    const busy = S.view !== 'main' || $('#appScreen').hidden || e.touches.length > 1 || !$('#sheetBackdrop').hidden
-      || e.target.closest('input, textarea, select, .tabs');
-    start = busy ? null : { x: t.clientX, y: t.clientY, at: Date.now() };
+    const busy = S.view !== 'main' || $('#appScreen').hidden || e.touches.length > 1
+      || !$('#sheetBackdrop').hidden || e.target.closest('input, textarea, select, .tabs, .topbar');
+    g = busy ? null : { x: t.clientX, y: t.clientY, at: Date.now(), dx: 0, locked: null, next: null };
   }, { passive: true });
-  area.addEventListener('touchend', e => {
-    if (!start) return;
-    const t = e.changedTouches[0];
-    const dx = t.clientX - start.x, dy = t.clientY - start.y;
-    const quick = Date.now() - start.at < 700;
-    start = null;
-    if (!quick || Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 2) return;
-    const tabs = $$('.tabs button').map(b => b.dataset.tab);
-    const next = tabs[tabs.indexOf(S.tab) + (dx < 0 ? 1 : -1)];
-    if (!next) return;
-    switchTab(next);
-    $(`.tabs [data-tab="${next}"]`).scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
-    const list = $('#list');
-    list.classList.remove('slide-left', 'slide-right');
-    void list.offsetWidth;  // restart the animation
-    list.classList.add(dx < 0 ? 'slide-left' : 'slide-right');
+
+  document.addEventListener('touchmove', e => {
+    if (!g) return;
+    const t = e.touches[0];
+    const dx = t.clientX - g.x, dy = t.clientY - g.y;
+    if (g.locked === null) {
+      if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+      g.locked = Math.abs(dx) > Math.abs(dy) * 1.5 ? 'x' : 'y';  // decide once: sideways or scrolling
+      if (g.locked === 'y') { g = null; return; }
+    }
+    const tabs = tabsInOrder();
+    const next = tabs[tabs.indexOf(S.tab) + (dx < 0 ? 1 : -1)] ?? null;
+    if (next !== g.next) {
+      dropPeek();
+      g.next = next;
+      if (next) {
+        const peek = document.createElement('div');
+        peek.id = 'listPeek';
+        peek.className = 'list peek';
+        peek.style.left = dx < 0 ? '100%' : '-100%';
+        peek.innerHTML = listHTML(next);
+        track.append(peek);
+      }
+    }
+    g.dx = next ? dx : dx * 0.25;  // resist at the first / last tab
+    setX(g.dx, false);
+  }, { passive: true });
+
+  document.addEventListener('touchend', () => {
+    if (!g || g.locked !== 'x') { g = null; return; }
+    const { dx, next, at } = g;
+    g = null;
+    const width = track.offsetWidth;
+    const flick = Math.abs(dx) > 40 && Date.now() - at < 250;
+    if (!next || (Math.abs(dx) < width * 0.25 && !flick)) {
+      setX(0, true);  // spring back
+      setTimeout(dropPeek, 230);
+      return;
+    }
+    setX(dx < 0 ? -width : width, true);  // slide the rest of the way
+    setTimeout(() => {
+      dropPeek();
+      setX(0, false);
+      switchTab(next);
+      $(`.tabs [data-tab="${next}"]`).scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'smooth' });
+    }, 220);
+  }, { passive: true });
+  document.addEventListener('touchcancel', () => {
+    if (g?.locked === 'x') { setX(0, true); setTimeout(dropPeek, 230); }
+    g = null;
   }, { passive: true });
 }
 

@@ -184,11 +184,10 @@ main .tabs, main .toolbar { max-width: 900px; margin-left: auto; margin-right: a
 .switch input:checked + .track::after { transform: translateX(16px); }
 
 /* ---------- Vehicle cards ---------- */
-/* Swipe between tabs: the list slides in from the side */
-.list.slide-left { animation: slide-left .22s ease-out; }
-.list.slide-right { animation: slide-right .22s ease-out; }
-@keyframes slide-left { from { transform: translateX(28px); opacity: .4; } }
-@keyframes slide-right { from { transform: translateX(-28px); opacity: .4; } }
+/* Swipe between tabs: the list follows the finger, the next tab peeks in */
+.list-viewport { overflow-x: clip; touch-action: pan-y; }
+.list-track { position: relative; will-change: transform; }
+.list.peek { position: absolute; top: 0; width: 100%; pointer-events: none; }
 /* Cars in a grid: one column on phones, 2–4 on wider screens */
 .list {
   --cols: repeat(auto-fill, minmax(min(100%, 340px), 1fr));
