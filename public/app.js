@@ -546,11 +546,12 @@ function cardHTML(v) {
 
   const b = (act, label, cls = 'ghost') => `<button class="btn small ${cls}" data-act="${act}">${label}</button>`;
   const dentLabel = inDent(v) ? 'Dent ✓' : 'Dent';
+  const edit = isAdmin() ? b('edit', 'Edit') : '';  // editing car details is admin-only (also in the DB)
   let actions;
   if (tab === 'delivered') actions = b('reopen', 'Reopen');
-  else if (tab === 'loan') actions = b('edit', 'Edit') + b('loan', 'Loan details') + b('release', `${ICON.check} Returned`, 'accent');
-  else if (sold) actions = b('edit', 'Edit') + b('dent', dentLabel) + readyButtons(v);
-  else actions = b('edit', 'Edit') + b('loan', 'Loan') + b('dent', dentLabel) + (isAdmin() ? b('sell', 'Mark sold', 'primary') : '');
+  else if (tab === 'loan') actions = edit + b('loan', 'Loan details') + b('release', `${ICON.check} Returned`, 'accent');
+  else if (sold) actions = edit + b('dent', dentLabel) + readyButtons(v);
+  else actions = edit + b('loan', 'Loan') + b('dent', dentLabel) + (isAdmin() ? b('sell', 'Mark sold', 'primary') : '');
   const remove = isAdmin() && v.status !== 'delivered' ? `${b('remove', 'Remove', 'ghost danger')}<span class="spacer"></span>` : '';
 
   // Red outline: urgent, going out today (or overdue), or a loan car that's late back
@@ -810,7 +811,7 @@ async function onListClick(e) {
   const act = btn.dataset.act;
 
   if (act === 'svc') return cycleService(v, btn.dataset.key, btn);
-  if (act === 'edit') return openVehicleForm({ vehicle: v });
+  if (act === 'edit') return isAdmin() && openVehicleForm({ vehicle: v });
   if (act === 'sell') return isAdmin() && openVehicleForm({ vehicle: v, convert: true });
   if (act === 'photo') return openPhoto(v);
   if (act === 'loan' || act === 'dent') return openHoldForm(v, act);
