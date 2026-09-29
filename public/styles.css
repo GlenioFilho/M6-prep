@@ -147,7 +147,7 @@ main { max-width: 1280px; margin: 0 auto; }
 main .tabs, main .toolbar { max-width: 900px; margin-left: auto; margin-right: auto; }
 .tabs {
   position: sticky; top: 58px; z-index: 10;
-  display: grid; grid-template-columns: repeat(6, 1fr);
+  display: grid; grid-template-columns: repeat(7, 1fr);
   background: var(--brand); padding: 0 8px;
 }
 .tabs button {
@@ -227,6 +227,7 @@ main .tabs, main .toolbar { max-width: 900px; margin-left: auto; margin-right: a
 .chip.urgent { background: var(--urgent); border-color: var(--urgent); color: #fff; font-weight: 700; }
 .chip.warn { background: var(--doing-bg); border-color: var(--doing-bd); color: var(--doing-fg); }
 .chip.ok { background: var(--done-bg); border-color: var(--done-bd); color: var(--done-fg); }
+.chip.body { background: #b4541a; border-color: #b4541a; color: #fff; font-weight: 700; }
 .chip.hold { background: #5b3fd1; border-color: #5b3fd1; color: #fff; font-weight: 700; }
 .chip.sold { background: var(--brand); border-color: var(--brand); color: #fff; font-weight: 700; }
 @media (prefers-color-scheme: dark) { .chip.sold { background: #eceef1; border-color: #eceef1; color: #0b0b0c; } }
@@ -299,6 +300,7 @@ main .tabs, main .toolbar { max-width: 900px; margin-left: auto; margin-right: a
 .tag.alerts { background: #e8e4fb; border-color: #c4b8f3; color: #4b35b8; }
 @media (prefers-color-scheme: dark) { .tag.alerts { background: #2a2346; border-color: #4b3f86; color: #c7bcff; } }
 .tag.muted { color: var(--muted); font-weight: 500; }
+.tag.body { background: #b4541a; border-color: #b4541a; color: #fff; }
 .tag.dent { background: #5b3fd1; border-color: #5b3fd1; color: #fff; }
 .person-chevron { font-size: 22px; color: var(--muted); transition: transform .15s; }
 .team-hint { font-size: 13px; text-align: center; margin: 0; }

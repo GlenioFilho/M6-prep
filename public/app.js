@@ -6,7 +6,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, LOGIN_DOMAIN, VAPID_PUBLIC_KEY } from 
 // ---------------------------------------------------------------------
 // Shown in the help sheet, so anyone can check their phone has the latest app.
 // Keep in step with the ?v= in index.html.
-const APP_VERSION = '33';
+const APP_VERSION = '34';
 const BUCKET = 'vehicle-photos';
 const PURGE_DAYS = 30;
 
@@ -35,7 +35,7 @@ const COLOUR_HEX = Object.fromEntries(COLOURS.map(([n, h]) => [n.toLowerCase(), 
 
 // Tabs are views, not the database status (see tabOf): the DB status
 // 'in_prep' means "sold, not delivered yet".
-const TAB_TITLE = { stock: 'Stock', in_prep: 'In prep', sold: 'Sold', dent: 'Dent', loan: 'Loan', delivered: 'Delivered' };
+const TAB_TITLE = { stock: 'Stock', in_prep: 'In prep', sold: 'Sold', bodyshop: 'Bodyshop', dent: 'Dent', loan: 'Loan', delivered: 'Delivered' };
 
 const ICON = {
   back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>',
@@ -356,6 +356,7 @@ const inDent = v => !!v.dent_since && v.status !== 'delivered';
 function tabOf(v) {
   if (v.status === 'delivered') return 'delivered';
   if (v.hold === 'loan') return 'loan';
+  if (v.hold === 'bodyshop') return 'bodyshop';
   if (isWorking(v)) return 'in_prep';
   return v.status === 'in_prep' ? 'sold' : 'stock';
 }
@@ -381,7 +382,7 @@ function renderTabs() {
   badge.title = `${today} to deliver today`;
   $('#purgeBtn').hidden = S.tab !== 'delivered';
   const print = $('#printBtn');
-  print.hidden = !['sold', 'dent', 'loan'].includes(S.tab);
+  print.hidden = !['sold', 'dent', 'loan', 'bodyshop'].includes(S.tab);
   print.textContent = `🖨 Print ${TAB_TITLE[S.tab]?.toLowerCase()} list`;
   const fab = $('#fab');
   // Adding stock and recording sales are admin-only (also enforced in the database)
@@ -407,6 +408,7 @@ function visibleVehicles() {
       || clean(a.delivery_time).localeCompare(clean(b.delivery_time)),
     dent: (a, b) => due(a.dent_date).localeCompare(due(b.dent_date)) || (isSold(b) - isSold(a)) || (t(a.dent_since) - t(b.dent_since)),
     loan: (a, b) => due(a.loan_due).localeCompare(due(b.loan_due)),
+    bodyshop: (a, b) => due(a.body_due).localeCompare(due(b.body_due)),
     delivered: (a, b) => t(b.delivered_at) - t(a.delivered_at),
   };
   return list.sort(sorts[S.tab]);
@@ -490,6 +492,7 @@ function detailRow(label, value, html = null) {
 // Only the people marked "Looks after sold cars" (not admins automatically)
 const canReady = () => !!S.me?.handles_sold;
 const canDent = () => !!S.me?.can_dent;
+const canBodyshop = () => !!S.me?.can_bodyshop;
 const dueToday = v => isSold(v) && !!v.delivery_date && dayDiff(v.delivery_date) <= 0;
 
 function readyButtons(v) {
@@ -545,6 +548,11 @@ function cardHTML(v) {
     chips.push(`<span class="chip hold">ON LOAN</span>`);
     if (v.loan_due) chips.push(`<span class="chip${late ? ' urgent' : ''}">${late ? 'OVERDUE · ' : ''}Back ${esc(dayName(v.loan_due))}</span>`);
   }
+  if (tab === 'bodyshop') {
+    const late = v.body_due && dayDiff(v.body_due) < 0;
+    chips.push('<span class="chip body">AT BODYSHOP</span>');
+    if (v.body_due) chips.push(`<span class="chip${late ? ' urgent' : ''}">${late ? 'OVERDUE · ' : ''}Back ${esc(dayName(v.body_due))}</span>`);
+  }
   if (inDent(v)) chips.push(`<span class="chip hold">DENT${v.dent_date ? ` · ${esc(dayName(v.dent_date))}` : ''}</span>`);
   if (sold && tab !== 'sold') chips.push('<span class="chip sold">SOLD</span>');
   if (sold && v.urgent) chips.push('<span class="chip urgent">URGENT</span>');
@@ -564,6 +572,9 @@ function cardHTML(v) {
     tab === 'loan' ? detailRow('Phone', phone, `<a href="tel:${esc(phone.replace(/[^\d+]/g, ''))}">${esc(phone)}</a>`) : '',
     tab === 'loan' ? detailRow('Out since', v.loan_since && fmtDate(v.loan_since)) : '',
     inDent(v) ? detailRow('Dent', v.dent_notes || 'On the dent list') : '',
+    tab === 'bodyshop' ? detailRow('Work', v.body_notes) : '',
+    tab === 'bodyshop' ? detailRow('Bodyshop', v.body_place) : '',
+    tab === 'bodyshop' ? detailRow('Since', v.body_since && fmtDate(v.body_since)) : '',
     sold ? detailRow('Salesperson', v.seller) : '',
     sold ? detailRow('VRT / NCT', v.vrt_nct) : '',
     sold ? detailRow('Mechanical', v.mechanical_notes) : '',
@@ -574,15 +585,19 @@ function cardHTML(v) {
   // Dent is for the people given "Can use Dent" on the Team screen (also enforced in the DB)
   const dent = canDent() ? b('dent', inDent(v) ? 'Dent ✓' : 'Dent') : '';
   const edit = isAdmin() ? b('edit', 'Edit') : '';  // editing car details is admin-only (also in the DB)
+  // Bodyshop is for the people given "Can use Bodyshop" on the Team screen (also enforced in the DB)
+  const body = canBodyshop() ? b('bodyshop', 'Bodyshop') : '';
   let actions;
   if (tab === 'delivered') actions = b('reopen', 'Reopen');
+  else if (tab === 'bodyshop') actions = edit + (canBodyshop() ? b('bodyshop', 'Details') + b('release', `${ICON.check} Back from bodyshop`, 'accent') : '');
   else if (tab === 'loan') actions = edit + (isAdmin() ? b('loan', 'Loan details') + b('release', `${ICON.check} Returned`, 'accent') : '');
-  else if (sold) actions = edit + dent + readyButtons(v);
-  else actions = edit + (isAdmin() ? b('loan', 'Loan') : '') + dent + (isAdmin() ? b('sell', 'Mark sold', 'primary') : '');
+  else if (sold) actions = edit + body + dent + readyButtons(v);
+  else actions = edit + (isAdmin() ? b('loan', 'Loan') : '') + body + dent + (isAdmin() ? b('sell', 'Mark sold', 'primary') : '');
   const remove = isAdmin() && v.status !== 'delivered' ? `${b('remove', 'Remove', 'ghost danger')}<span class="spacer"></span>` : '';
 
-  // Red outline: urgent, going out today (or overdue), or a loan car that's late back
-  const flagged = (sold && (v.urgent || dueToday(v))) || (tab === 'loan' && v.loan_due && dayDiff(v.loan_due) < 0);
+  // Red outline: urgent, going out today (or overdue), or a loan / bodyshop car that's late back
+  const flagged = (sold && (v.urgent || dueToday(v))) || (tab === 'loan' && v.loan_due && dayDiff(v.loan_due) < 0)
+    || (tab === 'bodyshop' && v.body_due && dayDiff(v.body_due) < 0);
   return `<article class="card${flagged ? ' urgent' : ''}" data-id="${v.id}">
     <div class="card-head">
       ${url ? `<img class="thumb" src="${esc(url)}" alt="" data-act="photo" loading="lazy">`
@@ -681,6 +696,7 @@ const EMPTY = {
   sold: 'No sold cars waiting for delivery.',
   dent: 'The dent list is empty. Tap “Dent” on a car to add it.',
   loan: 'No cars out on loan.',
+  bodyshop: 'No cars at the bodyshop.',
   delivered: 'No deliveries yet.',
 };
 
@@ -752,6 +768,7 @@ function printSoldList() {
     const g = deliveryGroup(v);
     if (g.key !== current) { current = g.key; rows.push({ group: g.title }); }
     const where = (v.hold === 'loan' ? '<strong>ON LOAN</strong>'
+      : v.hold === 'bodyshop' ? '<strong>AT BODYSHOP</strong>'
       : v.stock_status === 'due_in' ? '<strong>NOT ON SITE YET</strong>' : 'On site')
       + (v.ready_state === 'done' ? '<br><strong>✓ READY TO GO</strong>'
         : v.ready_state === 'doing' ? `<br>Prep: ${esc(nameOf(v.ready_by))}` : '');
@@ -823,8 +840,28 @@ function printLoanList() {
   });
 }
 
+function printBodyshopList() {
+  const cars = [...S.vehicles.values()].filter(v => tabOf(v) === 'bodyshop')
+    .sort((a, b) => (a.body_due ?? '9999').localeCompare(b.body_due ?? '9999'));
+  if (!cars.length) return toast('No cars at the bodyshop.');
+  printDoc({
+    title: 'Bodyshop', summary: plural(cars.length, 'car') + ' out',
+    how: 'Earliest return first. Overdue cars are marked.',
+    columns: ['Plate', 'Car', 'Work', 'Bodyshop', 'Out since', 'Back by', 'Sold?'],
+    rows: cars.map(v => ({ cells: [
+      { html: plateCell(v), cls: 'plate-cell' },
+      { html: carCell(v) },
+      { html: esc(v.body_notes || '—').replace(/\n/g, '<br>'), cls: 'notes-cell' },
+      { html: esc(v.body_place || '—') },
+      { html: esc(v.body_since ? fmtDate(v.body_since) : '—') },
+      { html: v.body_due ? `${esc(dayName(v.body_due))}${dayDiff(v.body_due) < 0 ? '<br><strong>OVERDUE</strong>' : ''}` : '—' },
+      { html: isSold(v) ? `<strong>SOLD</strong><br>${esc(deliveryLabel(v) || 'No date')}` : 'Stock' },
+    ] })),
+  });
+}
+
 function printCurrentList() {
-  ({ sold: printSoldList, dent: printDentList, loan: printLoanList })[S.tab]?.();
+  ({ sold: printSoldList, dent: printDentList, loan: printLoanList, bodyshop: printBodyshopList })[S.tab]?.();
 }
 
 // ---------------------------------------------------------------------
@@ -844,7 +881,8 @@ async function onListClick(e) {
   if (act === 'photo') return openPhoto(v);
   if (act === 'loan') return isAdmin() && openHoldForm(v, act);  // loans are admin-only (also in the DB)
   if (act === 'dent') return canDent() && openHoldForm(v, act);
-  if (act === 'release') return isAdmin() && releaseHold(v);
+  if (act === 'bodyshop') return canBodyshop() && openBodyshopForm(v);
+  if (act === 'release') return (v.hold === 'bodyshop' ? canBodyshop() : isAdmin()) && releaseHold(v);
   if (act === 'dentdone') return canDent() && dentDone(v);
 
   if (act === 'ready') return cycleReady(v, btn);
@@ -937,6 +975,7 @@ async function setStatus(v, status, { undo = false } = {}) {
 const HOLD_FIELDS = {
   loan: ['loan_to', 'loan_phone', 'loan_due', 'loan_since'],
   dent: ['dent_notes', 'dent_date', 'dent_since'],
+  bodyshop: ['body_notes', 'body_place', 'body_due', 'body_since'],
 };
 
 function openHoldForm(v, kind) {
@@ -989,6 +1028,45 @@ function openHoldForm(v, kind) {
   $('#dentRemove', form)?.addEventListener('click', () => { closeSheet(); dentDone(v); });
 }
 
+// Bodyshop (panel beating & paint): the car goes out until "Back from bodyshop".
+function openBodyshopForm(v) {
+  const editing = v.hold === 'bodyshop';
+  const car = [v.make, v.model].map(clean).filter(Boolean).join(' ');
+  const sheet = openSheet(`<form class="form" id="bodyForm" novalidate>
+    ${sheetHead(editing ? 'Bodyshop details' : 'Send to the bodyshop')}
+    <div class="hold-car">${plateHTML(v)}<span class="muted">${esc(car)}</span></div>
+    <label>What’s being done<textarea name="body_notes" rows="3" placeholder="e.g. respray rear bumper, repair driver door">${esc(v.body_notes)}</textarea></label>
+    <label>Bodyshop<input name="body_place" value="${esc(v.body_place)}" placeholder="e.g. Longford Bodyworks" autocapitalize="words"></label>
+    <label>Back by<input name="body_due" type="date" value="${esc(v.body_due)}"></label>
+    <p class="form-error" id="bodyError" hidden></p>
+    <div class="sheet-actions">
+      <button type="button" class="btn ghost" data-close>Cancel</button>
+      <button type="submit" class="btn primary">${editing ? 'Save' : 'Send to bodyshop'}</button>
+    </div>
+  </form>`);
+  const form = $('#bodyForm', sheet);
+  form.onsubmit = async e => {
+    e.preventDefault();
+    const f = form.elements;
+    const patch = { hold: 'bodyshop', body_notes: clean(f.body_notes.value), body_place: clean(f.body_place.value),
+      body_due: f.body_due.value || null, body_since: editing ? v.body_since : new Date().toISOString() };
+    const fail = msg => { const el = $('#bodyError', form); el.textContent = msg; el.hidden = false; };
+    if (!patch.body_notes) return fail('Write what’s being done.');
+    const btn = form.querySelector('[type=submit]');
+    btn.disabled = true;
+    try {
+      const saved = await updateVehicle(v.id, patch);
+      closeSheet();
+      renderAll();
+      if (editing) toast('Saved');
+      else announceMove(v, saved);
+    } catch (err) {
+      btn.disabled = false;
+      fail(errorText(err));
+    }
+  };
+}
+
 // Take a car off the Dent list (repair done), with Undo.
 async function dentDone(v) {
   const patch = { dent_notes: '', dent_date: null, dent_since: null };
@@ -1005,13 +1083,13 @@ async function dentDone(v) {
 async function releaseHold(v) {
   const kind = v.hold;
   const patch = { hold: null };
-  for (const k of HOLD_FIELDS[kind] ?? []) patch[k] = k.endsWith('_since') || k === 'loan_due' ? null : '';
+  for (const k of HOLD_FIELDS[kind] ?? []) patch[k] = k.endsWith('_since') || k.endsWith('_due') ? null : '';
   const undo = { hold: kind };
   for (const k of HOLD_FIELDS[kind] ?? []) undo[k] = v[k];
   try {
     const saved = await updateVehicle(v.id, patch);
     renderAll();
-    toast(`${kind === 'loan' ? 'Returned' : 'Dent done'} — back in ${TAB_TITLE[tabOf(saved)]}`, {
+    toast(`${{ loan: 'Returned', bodyshop: 'Back from bodyshop' }[kind] ?? 'Done'} — back in ${TAB_TITLE[tabOf(saved)]}`, {
       action: { label: 'Undo', run: async () => { await updateVehicle(v.id, undo); renderAll(); } },
     });
   } catch (err) { toast(errorText(err), { error: true }); }
@@ -1337,6 +1415,7 @@ function personTags(p) {
   if (p.handles_sold) tags.push('<span class="tag sold">Prepares sold cars</span>');
   if (p.sold_alerts) tags.push('<span class="tag alerts">🔔 Sold notifications</span>');
   if (p.can_dent) tags.push('<span class="tag dent">Dent</span>');
+  if (p.can_bodyshop) tags.push('<span class="tag body">Bodyshop</span>');
   if (!jobs.length && !p.handles_sold) tags.push('<span class="tag muted">Overview only</span>');
   return tags.join('');
 }
@@ -1385,6 +1464,9 @@ function openPerson(id) {
 
     <div class="section-label">Dent</div>
     ${sw('data-flag="can_dent"', p.can_dent, 'Can use Dent', 'Add cars to the Dent list and mark them done.')}
+
+    <div class="section-label">Bodyshop</div>
+    ${sw('data-flag="can_bodyshop"', p.can_bodyshop, 'Can use Bodyshop', 'Send cars for panel beating & paint and mark them back.')}
 
     <div class="section-label">Access</div>
     ${sw('data-flag="is_admin"', p.is_admin, 'Admin', me ? 'You can’t remove your own admin.' : 'Adds and sells cars, edits, loans, Team and Pay report.', me)}
@@ -1883,6 +1965,9 @@ const HELP = [
   { id: 'dent', title: 'Dent list', tabs: ['dent'], body: `
     <p>Tap <b>Dent</b> on a car, write what needs fixing and pick the <b>dent day</b>. The car stays where it is — it’s just added to the list.</p>
     <p>On the day, open the <b>Dent</b> tab and tap <b>🖨 Print dent list</b>. When a car is fixed, tap <b>Done</b>.</p>` },
+  { id: 'bodyshop', title: 'Bodyshop', tabs: ['bodyshop'], body: `
+    <p>When a car goes out for panel beating & paint, tap <b>Bodyshop</b> on it, write what’s being done, which bodyshop and when it’s due back. It moves to the <b>Bodyshop</b> tab (red when overdue).</p>
+    <p>When it comes back, tap <b>Back from bodyshop</b> — it returns to Stock or Sold.</p>` },
   { id: 'loan', title: 'Loan cars (managers)', tabs: ['loan'], admin: true, body: `
     <p>Tap <b>Loan</b> on a stock car, enter the customer’s name, phone and the day it comes back. It moves to the <b>Loan</b> tab (red when overdue).</p>
     <p>When it’s back, tap <b>Returned</b>.</p>` },
