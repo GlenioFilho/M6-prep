@@ -1235,6 +1235,10 @@ function openNewPassword() {
 // ---------------------------------------------------------------------
 // Team (admin)
 // ---------------------------------------------------------------------
+// Job pills for one person on the Team screen. Bosses (admins with no jobs)
+// don't get them unless someone taps "Choose jobs".
+const jobPills = p => `<div class="pills staff-svcs">${SERVICES.map(s => `<label class="pill small"><input type="checkbox" data-svc="${s.key}" ${(p.services ?? []).includes(s.key) ? 'checked' : ''}><span>${esc(s.label)}</span></label>`).join('')}</div>`;
+
 function renderTeam() {
   const staff = [...S.profiles.values()].sort((a, b) => a.display_name.localeCompare(b.display_name));
 
@@ -1249,15 +1253,22 @@ function renderTeam() {
           <input value="${esc(p.display_name)}" aria-label="Display name" data-name>
           <label class="switch" title="Admin"><input type="checkbox" data-admin ${p.is_admin ? 'checked' : ''} ${p.id === S.me.id ? 'disabled' : ''}><span class="track"></span> Admin</label>
         </div>
-        <div class="pills staff-svcs">${SERVICES.map(s => `<label class="pill small"><input type="checkbox" data-svc="${s.key}" ${(p.services ?? []).includes(s.key) ? 'checked' : ''}><span>${esc(s.label)}</span></label>`).join('')}</div>
+        ${p.is_admin && !(p.services ?? []).length ? '' : jobPills(p)}
         <div class="staff-sees">${(p.services ?? []).length
           ? `👁 Sees only: <strong>${esc(SERVICES.filter(s => p.services.includes(s.key)).map(s => s.label).join(', '))}</strong>`
-          : '👁 Sees <strong>every job</strong> (nothing ticked)'}</div>
+          : `👁 Sees <strong>every job</strong>${p.is_admin ? ' <button type="button" class="link-btn" data-show-jobs>Choose jobs</button>' : ' (nothing ticked)'}`}</div>
       </div>`).join('')}
     </div>`;
 }
 
 async function onTeamClick(e) {
+  const show = e.target.closest('[data-show-jobs]');
+  if (show) {
+    const card = show.closest('.staff-card');
+    card.querySelector('.staff-sees').insertAdjacentHTML('beforebegin', jobPills(S.profiles.get(card.dataset.id)));
+    show.remove();
+    return;
+  }
   const panel = e.target.closest('[data-role]');
   if (!panel) return;
   const role = panel.dataset.role;
