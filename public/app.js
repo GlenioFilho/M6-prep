@@ -477,8 +477,9 @@ const dueToday = v => isSold(v) && !!v.delivery_date && dayDiff(v.delivery_date)
 
 function readyButtons(v) {
   if (!canReady()) return '';
-  if (v.ready_state === 'doing') return `<button class="btn small accent" data-act="ready">${ICON.check} Ready to go</button>`;
-  if (v.ready_state === 'done') return `<button class="btn small ghost" data-act="deliver">Delivered</button>`;
+  const undo = label => `<button class="btn small ghost" data-act="unready" title="Back to not started">${label}</button>`;
+  if (v.ready_state === 'doing') return undo('Cancel') + `<button class="btn small accent" data-act="ready">${ICON.check} Ready to go</button>`;
+  if (v.ready_state === 'done') return undo('↺ Undo') + `<button class="btn small ghost" data-act="deliver">Delivered</button>`;
   return `<button class="btn small primary" data-act="ready">▶ Start prep</button>`;
 }
 
@@ -493,18 +494,22 @@ function readyStatusHTML(v) {
   return '';
 }
 
-async function cycleReady(v, btn) {
+// next: 'doing' / 'done', or 'pending' to undo (Cancel / ↺ Undo)
+async function cycleReady(v, btn, next = v.ready_state === 'doing' ? 'done' : 'doing') {
   if (!canReady()) return;
-  const next = v.ready_state === 'doing' ? 'done' : 'doing';
+  if (next === 'pending' && btn && !confirmTap(btn, 'Tap again to undo')) return;
   if (next === 'done' && !v.done_at && !confirmTap(btn, 'Jobs not all done — tap again')) return;
   const before = { ...v };
   const now = new Date().toISOString();
-  S.vehicles.set(v.id, { ...v, ready_state: next, ready_by: v.ready_by ?? S.me.id,
-    ready_started_at: v.ready_started_at ?? now, ready_at: next === 'done' ? now : null });
+  S.vehicles.set(v.id, next === 'pending'
+    ? { ...v, ready_state: 'pending', ready_by: null, ready_started_at: null, ready_at: null }
+    : { ...v, ready_state: next, ready_by: v.ready_by ?? S.me.id, ready_started_at: v.ready_started_at ?? now, ready_at: next === 'done' ? now : null });
   renderAll();
   try {
-    await updateVehicle(v.id, { ready_state: next });
-    toast(next === 'doing' ? 'Prep started — the boss has been told' : 'Ready to go ✓');
+    const saved = await updateVehicle(v.id, { ready_state: next });
+    if (next === 'doing') toast('Prep started — the boss has been told');
+    else if (next === 'done') toast('Ready to go ✓', { action: { label: 'Undo', run: () => cycleReady(saved, null, 'doing') } });
+    else toast('Back to not started');
   } catch (err) {
     S.vehicles.set(v.id, before);
     toast(errorText(err), { error: true });
@@ -824,6 +829,7 @@ async function onListClick(e) {
   if (act === 'dentdone') return dentDone(v);
 
   if (act === 'ready') return cycleReady(v, btn);
+  if (act === 'unready') return cycleReady(v, btn, 'pending');
   if (act === 'deliver') {
     if (!v.done_at && !confirmTap(btn, 'Not finished — tap again')) return;
     return setStatus(v, 'delivered', { undo: true });
