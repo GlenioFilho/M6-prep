@@ -482,7 +482,8 @@ function detailRow(label, value, html = null) {
 // "Ready to go": the sold-cars person (Profiles → handles_sold) or an admin
 // taps Start prep (the boss gets a notification), then Ready to go when done.
 // ---------------------------------------------------------------------
-const canReady = () => isAdmin() || !!S.me?.handles_sold;
+// Only the people marked "Looks after sold cars" (not admins automatically)
+const canReady = () => !!S.me?.handles_sold;
 const canDent = () => !!S.me?.can_dent;
 const dueToday = v => isSold(v) && !!v.delivery_date && dayDiff(v.delivery_date) <= 0;
 
