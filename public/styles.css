@@ -251,6 +251,12 @@ main .tabs, main .toolbar { max-width: 900px; margin-left: auto; margin-right: a
 .svc.doing { background: var(--doing-bg); color: var(--doing-fg); border-color: var(--doing-bd); }
 .svc.done  { background: var(--done-bg);  color: var(--done-fg);  border-color: var(--done-bd); }
 .svc.armed { outline: 2px solid var(--urgent); outline-offset: 1px; }
+.other-jobs { font-size: 12px; color: var(--muted); margin-top: -4px; }
+.card.flash { animation: flash 1.8s ease-out; }
+@keyframes flash { 0%, 45% { box-shadow: 0 0 0 3px var(--accent); } 100% { box-shadow: var(--shadow); } }
+.staff-card { display: grid; gap: 8px; padding: 10px 0; border-top: 1px solid var(--border); }
+.staff-card:first-of-type { border-top: 0; }
+.pill.small span { padding: 5px 10px; font-size: 12.5px; }
 /* Not requested for this car: faded, dashed, "+" — tap to add and start */
 .svc.extra { background: transparent; border-style: dashed; opacity: .6; }
 .svc.extra:hover, .svc.extra:focus-visible { opacity: 1; }

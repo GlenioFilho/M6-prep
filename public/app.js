@@ -165,7 +165,7 @@ const S = {
   team: Object.fromEntries(ROLES.map(r => [r.role, new Set()])),
   vehicles: new Map(),      // id → row
   photoUrls: new Map(),     // storage path → signed URL
-  tab: 'stock',
+  tab: 'sold',
   view: 'main',
   search: '',
   channel: null,
@@ -210,7 +210,7 @@ function canMark() {
 // ---------------------------------------------------------------------
 async function loadAll() {
   const [p, t, v] = await Promise.all([
-    sb.from('profiles').select('id, display_name, is_admin'),
+    sb.from('profiles').select('*'),
     sb.from('team_members').select('role, user_id'),
     sb.from('vehicles').select('*'),
   ]);
@@ -414,6 +414,24 @@ function colourHTML(color) {
   return `<span class="colour">${hex ? `<span class="dot" style="background:${hex}"></span>` : ''}${esc(color)}</span>`;
 }
 
+// Which service bubbles this person sees on the cards: the jobs ticked for
+// them on the Team screen. Admins, and people with nothing ticked, see all.
+function myServiceKeys() {
+  const mine = S.me?.services ?? [];
+  return isAdmin() || !mine.length ? SERVICES.map(s => s.key) : mine;
+}
+
+// One quiet line about the jobs this person doesn't see, e.g. "Other jobs: 1 in progress · 2 done"
+function otherJobsHTML(v) {
+  const hidden = v.services.filter(k => !myServiceKeys().includes(k));
+  if (!hidden.length) return '';
+  const count = st => hidden.filter(k => v[`${k}_state`] === st).length;
+  const parts = [[count('doing'), 'in progress'], [count('done'), 'done'], [count('pending'), 'to do']]
+    .filter(([n]) => n).map(([n, w]) => `${n} ${w}`);
+  const doing = hidden.filter(k => v[`${k}_state`] === 'doing').map(k => `${SERVICE[k].label} (${nameOf(v[`${k}_by`])})`);
+  return `<div class="other-jobs" title="${esc(doing.length ? `In progress: ${doing.join(', ')}` : '')}">Other jobs: ${esc(parts.join(' · '))}</div>`;
+}
+
 // A service this car wasn't asked for (and nobody has touched): shown faded
 // with "+"; tapping it adds it to the car and starts it.
 const isExtra = (v, key) => !v.services.includes(key) && v[`${key}_state`] === 'pending';
@@ -497,9 +515,11 @@ function cardHTML(v) {
     ${details ? `<dl class="details">${details}</dl>` : ''}
     ${clean(v.notes) ? `<div class="notes">${esc(v.notes)}</div>` : ''}
     <div class="services">${SERVICES
-      // Every service is shown (extras faded) — except on delivered cars, which show what was done
+      // Only the viewer's own jobs (see myServiceKeys); extras faded — delivered cars show what was done
+      .filter(s => myServiceKeys().includes(s.key))
       .filter(s => v.status !== 'delivered' || !isExtra(v, s.key))
       .map(s => serviceHTML(v, s.key)).join('')}</div>
+    ${otherJobsHTML(v)}
     <div class="card-actions">${remove}${actions}</div>
   </article>`;
 }
@@ -760,11 +780,28 @@ async function onListClick(e) {
   }
 }
 
-// When a change moves the car to another tab, say where it went.
+// When the viewer's own action moves the car to another tab, follow it there:
+// switch tab, scroll to the card and highlight it.
 function announceMove(before, after) {
   const from = tabOf(before), to = tabOf(after);
   if (from === to) return;
-  toast(`Moved to ${TAB_TITLE[to]}`, { action: { label: 'Show', run: () => switchTab(to) } });
+  if (S.tab === from) followCard(after.id, to);
+  else toast(`Moved to ${TAB_TITLE[to]}`, { action: { label: 'Show', run: () => followCard(after.id, to) } });
+}
+
+function followCard(id, tab) {
+  S.search = '';
+  $('#search').value = '';
+  switchTab(tab);
+  requestAnimationFrame(() => {
+    const card = document.querySelector(`.card[data-id="${id}"]`);
+    if (!card) return;
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    card.classList.remove('flash');
+    void card.offsetWidth; // restart the animation
+    card.classList.add('flash');
+  });
+  toast(`Moved to ${TAB_TITLE[tab]}`);
 }
 
 async function cycleService(v, key, btn) {
@@ -1201,18 +1238,18 @@ function openNewPassword() {
 function renderTeam() {
   const staff = [...S.profiles.values()].sort((a, b) => a.display_name.localeCompare(b.display_name));
 
-  // Service teams are gone: anyone on staff can mark any service.
+  // Each person's services decide which bubbles they see on the cards
+  // (anyone on staff can still mark any service; this only declutters).
   $('#teamView').innerHTML = `
-    <div class="panel">
-      <h2>Services</h2>
-      <p class="muted">Anyone on staff can mark any service. The app records who did each job and when — that’s what the pay report uses.</p>
-    </div>
     <div class="panel" id="staffPanel">
       <h2>Staff</h2>
-      <p class="muted">Everyone with a login is listed here. You can edit their name and choose who is an admin.</p>
-      ${staff.map(p => `<div class="staff-row" data-id="${p.id}">
-        <input value="${esc(p.display_name)}" aria-label="Display name" data-name>
-        <label class="switch" title="Admin"><input type="checkbox" data-admin ${p.is_admin ? 'checked' : ''} ${p.id === S.me.id ? 'disabled' : ''}><span class="track"></span> Admin</label>
+      <p class="muted">Tick the jobs each person does — they’ll only see those on the cars. Leave everything unticked (e.g. salespeople) to see every job. Admins always see every job.</p>
+      ${staff.map(p => `<div class="staff-card" data-id="${p.id}">
+        <div class="staff-row">
+          <input value="${esc(p.display_name)}" aria-label="Display name" data-name>
+          <label class="switch" title="Admin"><input type="checkbox" data-admin ${p.is_admin ? 'checked' : ''} ${p.id === S.me.id ? 'disabled' : ''}><span class="track"></span> Admin</label>
+        </div>
+        <div class="pills staff-svcs">${SERVICES.map(s => `<label class="pill small"><input type="checkbox" data-svc="${s.key}" ${(p.services ?? []).includes(s.key) ? 'checked' : ''}><span>${esc(s.label)}</span></label>`).join('')}</div>
       </div>`).join('')}
     </div>`;
 }
@@ -1240,12 +1277,12 @@ async function onTeamClick(e) {
 }
 
 async function onStaffChange(e) {
-  const row = e.target.closest('.staff-row');
+  const row = e.target.closest('.staff-card');
   if (!row) return;
   const id = row.dataset.id;
   const p = S.profiles.get(id);
-  const patch = e.target.matches('[data-admin]')
-    ? { is_admin: e.target.checked }
+  const patch = e.target.matches('[data-admin]') ? { is_admin: e.target.checked }
+    : e.target.matches('[data-svc]') ? { services: $$('[data-svc]', row).filter(b => b.checked).map(b => b.dataset.svc) }
     : { display_name: clean(e.target.value) };
   if (patch.display_name === '') { e.target.value = p.display_name; return; }
   const { error } = await sb.from('profiles').update(patch).eq('id', id);
@@ -1804,7 +1841,7 @@ function wireUi() {
   // A tapped notification opens the app on its tab (e.g. ?tab=stock)
   const linkTab = new URLSearchParams(location.search).get('tab');
   if (TAB_TITLE[linkTab]) S.tab = linkTab;
-  if (!TAB_TITLE[S.tab]) S.tab = 'stock';
+  if (!TAB_TITLE[S.tab]) S.tab = 'sold';
   navigator.serviceWorker?.addEventListener('message', e => {
     if (e.data?.type !== 'open') return;
     const tab = new URL(e.data.url).searchParams.get('tab');
