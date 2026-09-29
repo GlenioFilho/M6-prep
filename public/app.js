@@ -420,14 +420,24 @@ function colourHTML(color) {
   return `<span class="colour">${hex ? `<span class="dot" style="background:${hex}"></span>` : ''}${esc(color)}</span>`;
 }
 
-// Which service bubbles this person sees on the cards: the jobs ticked for
-// them on the Team screen (admins too). With nothing ticked: the sold-cars
-// person (handles_sold, not admin) sees none — just Ready to go — and
-// everyone else sees all.
+// Which service buttons this person gets on the cards: the jobs ticked for
+// them on the Team screen (admins too). With nothing ticked (managers, the
+// sold-cars person) they get a read-only summary instead (jobStatusHTML).
 function myServiceKeys() {
-  const mine = S.me?.services ?? [];
-  if (mine.length) return mine;
-  return S.me?.handles_sold && !isAdmin() ? [] : SERVICES.map(s => s.key);
+  return S.me?.services ?? [];
+}
+
+// For people with no jobs ticked (managers, the sold-cars person): a small,
+// read-only line of where each job on the car stands — nothing to tap.
+function jobStatusHTML(v) {
+  const keys = SERVICES.map(s => s.key).filter(k => v.services.includes(k) || v[`${k}_state`] !== 'pending');
+  if (!keys.length) return '';
+  return `<div class="job-status">${keys.map(k => {
+    const st = v[`${k}_state`];
+    const mark = { done: '✓', doing: '◐', pending: '○' }[st];
+    const who = st === 'pending' ? '' : ` <em>${esc(nameOf(v[`${k}_by`]))}</em>`;
+    return `<span class="js ${st}">${mark} ${esc(SERVICE[k].label)}${who}</span>`;
+  }).join('')}</div>`;
 }
 
 // One quiet line about the jobs this person doesn't see, e.g. "Other jobs: 1 in progress · 2 done"
@@ -576,12 +586,12 @@ function cardHTML(v) {
     ${chips.length ? `<div class="chips">${chips.join('')}</div>` : ''}
     ${details ? `<dl class="details">${details}</dl>` : ''}
     ${clean(v.notes) ? `<div class="notes">${esc(v.notes)}</div>` : ''}
-    <div class="services">${SERVICES
+    ${myServiceKeys().length ? `<div class="services">${SERVICES
       // Only the viewer's own jobs (see myServiceKeys); extras faded — delivered cars show what was done
       .filter(s => myServiceKeys().includes(s.key))
       .filter(s => v.status !== 'delivered' || !isExtra(v, s.key))
       .map(s => serviceHTML(v, s.key)).join('')}</div>
-    ${otherJobsHTML(v)}
+    ${otherJobsHTML(v)}` : jobStatusHTML(v)}
     ${sold ? readyStatusHTML(v) : ''}
     <div class="card-actions">${remove}${actions}</div>
   </article>`;
@@ -1317,7 +1327,7 @@ function personTags(p) {
   if (jobs.length) tags.push(...jobs.map(j => `<span class="tag job">${esc(j)}</span>`));
   if (p.handles_sold) tags.push('<span class="tag sold">Sold cars</span>');
   if (p.sold_alerts) tags.push('<span class="tag alerts">🔔 Alerts</span>');
-  if (!jobs.length && !p.handles_sold) tags.push(`<span class="tag muted">${p.is_admin ? 'Sees everything' : 'Sees every job'}</span>`);
+  if (!jobs.length && !p.handles_sold) tags.push('<span class="tag muted">Overview only</span>');
   return tags.join('');
 }
 
@@ -1356,7 +1366,7 @@ function openPerson(id) {
     <label>Name<input data-field="display_name" value="${esc(p.display_name)}" autocapitalize="words"></label>
 
     <div class="section-label">Jobs they do</div>
-    <p class="hint" style="margin:0">They only see these on the cars. Leave all off to see every job.</p>
+    <p class="hint" style="margin:0">They get a button for these on the cars. Leave all off (managers) to just see a summary of every job.</p>
     <div class="pills">${SERVICES.map(s => `<label class="pill"><input type="checkbox" data-svc="${s.key}" ${(p.services ?? []).includes(s.key) ? 'checked' : ''}><span>${esc(s.label)}</span></label>`).join('')}</div>
 
     <div class="section-label">Sold cars</div>
