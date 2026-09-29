@@ -5,3 +5,8 @@
 .claude/
 .netlify/
 node_modules/
+
+# Spreadsheets with business/customer data — never commit
+*.xlsx
+*.xls
+*.csv

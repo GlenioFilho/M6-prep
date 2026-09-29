@@ -251,6 +251,10 @@ main .tabs, main .toolbar { max-width: 900px; margin-left: auto; margin-right: a
 .svc.doing { background: var(--doing-bg); color: var(--doing-fg); border-color: var(--doing-bd); }
 .svc.done  { background: var(--done-bg);  color: var(--done-fg);  border-color: var(--done-bd); }
 .svc.armed { outline: 2px solid var(--urgent); outline-offset: 1px; }
+/* Not requested for this car: faded, dashed, "+" — tap to add and start */
+.svc.extra { background: transparent; border-style: dashed; opacity: .6; }
+.svc.extra:hover, .svc.extra:focus-visible { opacity: 1; }
+.svc .plus { width: 16px; text-align: center; font-weight: 700; font-size: 16px; line-height: 1; }
 
 .card-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
 .card-actions .spacer { flex: 1; }

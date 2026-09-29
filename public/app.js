@@ -414,10 +414,19 @@ function colourHTML(color) {
   return `<span class="colour">${hex ? `<span class="dot" style="background:${hex}"></span>` : ''}${esc(color)}</span>`;
 }
 
+// A service this car wasn't asked for (and nobody has touched): shown faded
+// with "+"; tapping it adds it to the car and starts it.
+const isExtra = (v, key) => !v.services.includes(key) && v[`${key}_state`] === 'pending';
+
 // One bubble per service: grey = to do, amber = someone is on it, green ✓ = done.
 function serviceHTML(v, key) {
   const s = SERVICE[key];
   const state = v[`${key}_state`];
+  if (isExtra(v, key)) {
+    return `<button type="button" class="svc extra" data-act="svc" data-key="${key}" title="${esc(`${s.label} — not requested. Tap to add it and start`)}">
+      <span class="plus">+</span><span class="svc-text"><strong>${esc(s.label)}</strong></span>
+    </button>`;
+  }
   const by = v[`${key}_by`];
   const who = state === 'doing' ? nameOf(by) : state === 'done' ? `${nameOf(by)} · ${fmtDate(v[`${key}_done_at`], false)}` : '';
   const hint = { pending: 'Tap to start', doing: 'Tap when finished', done: 'Done — tap twice to undo' }[state];
@@ -487,7 +496,10 @@ function cardHTML(v) {
     ${chips.length ? `<div class="chips">${chips.join('')}</div>` : ''}
     ${details ? `<dl class="details">${details}</dl>` : ''}
     ${clean(v.notes) ? `<div class="notes">${esc(v.notes)}</div>` : ''}
-    ${v.services.length ? `<div class="services">${SERVICES.filter(s => v.services.includes(s.key)).map(s => serviceHTML(v, s.key)).join('')}</div>` : ''}
+    <div class="services">${SERVICES
+      // Every service is shown (extras faded) — except on delivered cars, which show what was done
+      .filter(s => v.status !== 'delivered' || !isExtra(v, s.key))
+      .map(s => serviceHTML(v, s.key)).join('')}</div>
     <div class="card-actions">${remove}${actions}</div>
   </article>`;
 }
@@ -760,18 +772,21 @@ async function cycleService(v, key, btn) {
   const state = v[`${key}_state`];
   if (state === 'done' && !confirmTap(btn, 'Tap again to reset')) return;
   const next = NEXT_STATE[state];
+  const patch = { [`${key}_state`]: next };
+  // Tapping a service the car wasn't asked for adds it to the car and starts it
+  if (!v.services.includes(key)) patch.services = SERVICES.map(s => s.key).filter(k => v.services.includes(k) || k === key);
 
   // Optimistic update; the server fills in the real who/when.
   const before = { ...v };
   S.vehicles.set(v.id, {
     ...v,
-    [`${key}_state`]: next,
+    ...patch,
     [`${key}_by`]: next === 'pending' ? null : (v[`${key}_by`] ?? S.me.id),
     [`${key}_done_at`]: next === 'done' ? new Date().toISOString() : null,
   });
   renderAll();
   try {
-    const saved = await updateVehicle(v.id, { [`${key}_state`]: next });
+    const saved = await updateVehicle(v.id, patch);
     announceMove(before, saved);
   } catch (err) {
     S.vehicles.set(v.id, before);
@@ -1690,7 +1705,8 @@ const HELP = [
     <p>Each service on a car is a bubble:</p>
     <ul><li><b>○ Grey</b> — still to do.</li>
       <li><b>◐ Amber</b> — someone is working on it (shows their name).</li>
-      <li><b>✓ Green</b> — done (shows who and when).</li></ul>
+      <li><b>✓ Green</b> — done (shows who and when).</li>
+      <li><b>+ Faded</b> — not asked for on this car. Tap it to add it and start.</li></ul>
     <p><b>Tap once when you start</b>, <b>tap again when you finish</b>. The job goes in <b>your name</b> — that’s what the pay report counts, so always use your own login.</p>
     <p>Tapped by mistake on a green one? Tap it twice to undo.</p>` },
   { id: 'tabs', title: 'What the tabs mean', tabs: ['stock', 'in_prep', 'sold', 'delivered'], body: `
