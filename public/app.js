@@ -1250,6 +1250,9 @@ function renderTeam() {
           <label class="switch" title="Admin"><input type="checkbox" data-admin ${p.is_admin ? 'checked' : ''} ${p.id === S.me.id ? 'disabled' : ''}><span class="track"></span> Admin</label>
         </div>
         <div class="pills staff-svcs">${SERVICES.map(s => `<label class="pill small"><input type="checkbox" data-svc="${s.key}" ${(p.services ?? []).includes(s.key) ? 'checked' : ''}><span>${esc(s.label)}</span></label>`).join('')}</div>
+        <div class="staff-sees">${(p.services ?? []).length
+          ? `👁 Sees only: <strong>${esc(SERVICES.filter(s => p.services.includes(s.key)).map(s => s.label).join(', '))}</strong>`
+          : '👁 Sees <strong>every job</strong> (nothing ticked)'}</div>
       </div>`).join('')}
     </div>`;
 }
