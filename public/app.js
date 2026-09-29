@@ -6,7 +6,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, LOGIN_DOMAIN, VAPID_PUBLIC_KEY } from 
 // ---------------------------------------------------------------------
 // Shown in the help sheet, so anyone can check their phone has the latest app.
 // Keep in step with the ?v= in index.html.
-const APP_VERSION = '30';
+const APP_VERSION = '31';
 const BUCKET = 'vehicle-photos';
 const PURGE_DAYS = 30;
 
@@ -48,6 +48,8 @@ const ICON = {
   check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
   camera: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5A1.5 1.5 0 0 1 4.5 7h2.3l1.6-2.2h7.2L17.2 7h2.3A1.5 1.5 0 0 1 21 8.5v10a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z"/><circle cx="12" cy="13" r="3.8"/></svg>',
   bell: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>',
+  // Car silhouette shown where a car has no photo yet
+  car: '<svg viewBox="0 0 64 40" fill="currentColor" aria-hidden="true"><path d="M13 28a5 5 0 1 0 10 0 5 5 0 0 0-10 0zm28 0a5 5 0 1 0 10 0 5 5 0 0 0-10 0z" opacity=".9"/><path d="M8.5 27.5C5 27.3 3 25.8 3 23.2v-3.4c0-2 1.3-3.4 3.4-3.9l7.8-1.9 7.2-6.3C23.5 5.9 26 5 29 5h8.6c2.7 0 5 1 6.9 2.9l6.1 6.3 5.6 1.2c2.6.6 4.3 2.6 4.3 5.3v2.9c0 2.4-1.7 3.8-4.6 3.9h-1.2a7 7 0 0 0-13.4 0H23.6a7 7 0 0 0-13.4 0zM24.6 14.4h10.2V8.6h-5.3c-1.9 0-3.4.6-4.8 1.8l-4.6 4zm13.9 0h9.7l-4.4-4.5c-1.2-1.2-2.8-1.9-4.6-1.9h-.7z" opacity=".55"/></svg>',
   close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
 };
 
@@ -583,7 +585,8 @@ function cardHTML(v) {
   const flagged = (sold && (v.urgent || dueToday(v))) || (tab === 'loan' && v.loan_due && dayDiff(v.loan_due) < 0);
   return `<article class="card${flagged ? ' urgent' : ''}" data-id="${v.id}">
     <div class="card-head">
-      ${url ? `<img class="thumb" src="${esc(url)}" alt="" data-act="photo" loading="lazy">` : ''}
+      ${url ? `<img class="thumb" src="${esc(url)}" alt="" data-act="photo" loading="lazy">`
+        : `<span class="thumb placeholder"${isAdmin() ? ' data-act="edit" title="Add a photo"' : ''}>${ICON.car}</span>`}
       <div class="card-title">
         ${plateHTML(v)}
         <div class="vehicle-name">${esc([v.make, v.model].map(clean).filter(Boolean).join(' ') || 'Unknown vehicle')} ${colourHTML(v.color)}</div>
@@ -1071,7 +1074,7 @@ function openSoldPicker() {
     $('#pickList').innerHTML = cars.length ? cars.map(v => {
       const url = v.photo_path && S.photoUrls.get(v.photo_path);
       return `<button type="button" class="pick" data-id="${v.id}">
-        ${url ? `<img class="thumb" src="${esc(url)}" alt="">` : ''}
+        ${url ? `<img class="thumb" src="${esc(url)}" alt="">` : `<span class="thumb placeholder">${ICON.car}</span>`}
         <span>${plateHTML(v)}<span class="muted">${esc(`${v.make} ${v.model}`.trim())}</span></span>
       </button>`;
     }).join('') : '<p class="empty">No stock vehicles match.</p>';

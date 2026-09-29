@@ -200,6 +200,9 @@ main .tabs, main .toolbar { max-width: 900px; margin-left: auto; margin-right: a
   width: 72px; height: 54px; flex: none; border-radius: 8px; object-fit: cover; background: var(--surface-2);
   border: 1px solid var(--border); cursor: zoom-in;
 }
+.thumb.placeholder { display: grid; place-items: center; color: var(--muted); cursor: default; }
+.thumb.placeholder[data-act] { cursor: pointer; }
+.thumb.placeholder svg { width: 46px; height: 30px; }
 .card-title { flex: 1; min-width: 0; display: grid; gap: 4px; }
 .plates { display: flex; flex-wrap: wrap; gap: 6px; }
 .plate {
