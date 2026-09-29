@@ -4,6 +4,9 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, LOGIN_DOMAIN, VAPID_PUBLIC_KEY } from 
 // ---------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------
+// Shown in the help sheet, so anyone can check their phone has the latest app.
+// Keep in step with the ?v= in index.html.
+const APP_VERSION = '29';
 const BUCKET = 'vehicle-photos';
 const PURGE_DAYS = 30;
 
@@ -1901,7 +1904,7 @@ function openHelp() {
     <div class="help">${topics.map(h => `<details ${h.id === first ? 'open' : ''}>
       <summary>${esc(h.title)}</summary><div class="help-body">${h.body}</div>
     </details>`).join('')}</div>
-    <p class="muted" style="font-size:13px;margin:14px 0 0">Still stuck? Ask the manager.</p>`);
+    <p class="muted" style="font-size:13px;margin:14px 0 0">Still stuck? Ask the manager. · App version ${esc(APP_VERSION)}</p>`);
 }
 
 function switchTab(tab) {
