@@ -483,6 +483,7 @@ function detailRow(label, value, html = null) {
 // taps Start prep (the boss gets a notification), then Ready to go when done.
 // ---------------------------------------------------------------------
 const canReady = () => isAdmin() || !!S.me?.handles_sold;
+const canDent = () => !!S.me?.can_dent;
 const dueToday = v => isSold(v) && !!v.delivery_date && dayDiff(v.delivery_date) <= 0;
 
 function readyButtons(v) {
@@ -564,13 +565,14 @@ function cardHTML(v) {
   ].join('');
 
   const b = (act, label, cls = 'ghost') => `<button class="btn small ${cls}" data-act="${act}">${label}</button>`;
-  const dentLabel = inDent(v) ? 'Dent ✓' : 'Dent';
+  // Dent is for the people given "Can use Dent" on the Team screen (also enforced in the DB)
+  const dent = canDent() ? b('dent', inDent(v) ? 'Dent ✓' : 'Dent') : '';
   const edit = isAdmin() ? b('edit', 'Edit') : '';  // editing car details is admin-only (also in the DB)
   let actions;
   if (tab === 'delivered') actions = b('reopen', 'Reopen');
   else if (tab === 'loan') actions = edit + (isAdmin() ? b('loan', 'Loan details') + b('release', `${ICON.check} Returned`, 'accent') : '');
-  else if (sold) actions = edit + b('dent', dentLabel) + readyButtons(v);
-  else actions = edit + (isAdmin() ? b('loan', 'Loan') : '') + b('dent', dentLabel) + (isAdmin() ? b('sell', 'Mark sold', 'primary') : '');
+  else if (sold) actions = edit + dent + readyButtons(v);
+  else actions = edit + (isAdmin() ? b('loan', 'Loan') : '') + dent + (isAdmin() ? b('sell', 'Mark sold', 'primary') : '');
   const remove = isAdmin() && v.status !== 'delivered' ? `${b('remove', 'Remove', 'ghost danger')}<span class="spacer"></span>` : '';
 
   // Red outline: urgent, going out today (or overdue), or a loan car that's late back
@@ -655,10 +657,10 @@ function dentHTML(list) {
       <span class="dent-where">${esc(whereLabel(v))}</span>
     </div>
     <div class="dent-fix">${esc(v.dent_notes || '—')}</div>
-    <div class="dent-actions">
+    ${canDent() ? `<div class="dent-actions">
       <button class="btn small ghost" data-act="dent">Edit</button>
       <button class="btn small accent" data-act="dentdone">${ICON.check} Done</button>
-    </div>
+    </div>` : ''}
   </div>`;
   return [...groups.values()].map(g => `<section class="deliv-group dent-group ${g.cls}">
     <h3>${esc(g.title)} <span class="count">${g.items.length}</span></h3>
@@ -834,9 +836,9 @@ async function onListClick(e) {
   if (act === 'sell') return isAdmin() && openVehicleForm({ vehicle: v, convert: true });
   if (act === 'photo') return openPhoto(v);
   if (act === 'loan') return isAdmin() && openHoldForm(v, act);  // loans are admin-only (also in the DB)
-  if (act === 'dent') return openHoldForm(v, act);
+  if (act === 'dent') return canDent() && openHoldForm(v, act);
   if (act === 'release') return isAdmin() && releaseHold(v);
-  if (act === 'dentdone') return dentDone(v);
+  if (act === 'dentdone') return canDent() && dentDone(v);
 
   if (act === 'ready') return cycleReady(v, btn);
   if (act === 'unready') return cycleReady(v, btn, 'pending');
@@ -1327,6 +1329,7 @@ function personTags(p) {
   if (jobs.length) tags.push(...jobs.map(j => `<span class="tag job">${esc(j)}</span>`));
   if (p.handles_sold) tags.push('<span class="tag sold">Sold cars</span>');
   if (p.sold_alerts) tags.push('<span class="tag alerts">🔔 Alerts</span>');
+  if (p.can_dent) tags.push('<span class="tag dent">Dent</span>');
   if (!jobs.length && !p.handles_sold) tags.push('<span class="tag muted">Overview only</span>');
   return tags.join('');
 }
@@ -1372,6 +1375,9 @@ function openPerson(id) {
     <div class="section-label">Sold cars</div>
     ${sw('data-flag="handles_sold"', p.handles_sold, 'Looks after sold cars', 'Start prep → Ready to go → Delivered.')}
     ${sw('data-flag="sold_alerts"', p.sold_alerts, 'Sold alerts', 'Notification when prep starts or a car is ready, and the day’s list at 8am.')}
+
+    <div class="section-label">Dent</div>
+    ${sw('data-flag="can_dent"', p.can_dent, 'Can use Dent', 'Add cars to the Dent list and mark them done.')}
 
     <div class="section-label">Access</div>
     ${sw('data-flag="is_admin"', p.is_admin, 'Admin', me ? 'You can’t remove your own admin.' : 'Adds and sells cars, edits, loans, Team and Pay report.', me)}
