@@ -549,9 +549,9 @@ function cardHTML(v) {
   const edit = isAdmin() ? b('edit', 'Edit') : '';  // editing car details is admin-only (also in the DB)
   let actions;
   if (tab === 'delivered') actions = b('reopen', 'Reopen');
-  else if (tab === 'loan') actions = edit + b('loan', 'Loan details') + b('release', `${ICON.check} Returned`, 'accent');
+  else if (tab === 'loan') actions = edit + (isAdmin() ? b('loan', 'Loan details') + b('release', `${ICON.check} Returned`, 'accent') : '');
   else if (sold) actions = edit + b('dent', dentLabel) + readyButtons(v);
-  else actions = edit + b('loan', 'Loan') + b('dent', dentLabel) + (isAdmin() ? b('sell', 'Mark sold', 'primary') : '');
+  else actions = edit + (isAdmin() ? b('loan', 'Loan') : '') + b('dent', dentLabel) + (isAdmin() ? b('sell', 'Mark sold', 'primary') : '');
   const remove = isAdmin() && v.status !== 'delivered' ? `${b('remove', 'Remove', 'ghost danger')}<span class="spacer"></span>` : '';
 
   // Red outline: urgent, going out today (or overdue), or a loan car that's late back
@@ -814,8 +814,9 @@ async function onListClick(e) {
   if (act === 'edit') return isAdmin() && openVehicleForm({ vehicle: v });
   if (act === 'sell') return isAdmin() && openVehicleForm({ vehicle: v, convert: true });
   if (act === 'photo') return openPhoto(v);
-  if (act === 'loan' || act === 'dent') return openHoldForm(v, act);
-  if (act === 'release') return releaseHold(v);
+  if (act === 'loan') return isAdmin() && openHoldForm(v, act);  // loans are admin-only (also in the DB)
+  if (act === 'dent') return openHoldForm(v, act);
+  if (act === 'release') return isAdmin() && releaseHold(v);
   if (act === 'dentdone') return dentDone(v);
 
   if (act === 'ready') return cycleReady(v, btn);
@@ -1838,7 +1839,7 @@ const HELP = [
   { id: 'dent', title: 'Dent list', tabs: ['dent'], body: `
     <p>Tap <b>Dent</b> on a car, write what needs fixing and pick the <b>dent day</b>. The car stays where it is — it’s just added to the list.</p>
     <p>On the day, open the <b>Dent</b> tab and tap <b>🖨 Print dent list</b>. When a car is fixed, tap <b>Done</b>.</p>` },
-  { id: 'loan', title: 'Loan cars', tabs: ['loan'], body: `
+  { id: 'loan', title: 'Loan cars (managers)', tabs: ['loan'], admin: true, body: `
     <p>Tap <b>Loan</b> on a stock car, enter the customer’s name, phone and the day it comes back. It moves to the <b>Loan</b> tab (red when overdue).</p>
     <p>When it’s back, tap <b>Returned</b>.</p>` },
   { id: 'supplies', title: 'Asking for supplies', tabs: [], body: `
