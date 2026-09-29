@@ -421,10 +421,13 @@ function colourHTML(color) {
 }
 
 // Which service bubbles this person sees on the cards: the jobs ticked for
-// them on the Team screen (admins too). People with nothing ticked see all.
+// them on the Team screen (admins too). With nothing ticked: the sold-cars
+// person (handles_sold, not admin) sees none — just Ready to go — and
+// everyone else sees all.
 function myServiceKeys() {
   const mine = S.me?.services ?? [];
-  return mine.length ? mine : SERVICES.map(s => s.key);
+  if (mine.length) return mine;
+  return S.me?.handles_sold && !isAdmin() ? [] : SERVICES.map(s => s.key);
 }
 
 // One quiet line about the jobs this person doesn't see, e.g. "Other jobs: 1 in progress · 2 done"
@@ -435,7 +438,8 @@ function otherJobsHTML(v) {
   const parts = [[count('doing'), 'in progress'], [count('done'), 'done'], [count('pending'), 'to do']]
     .filter(([n]) => n).map(([n, w]) => `${n} ${w}`);
   const doing = hidden.filter(k => v[`${k}_state`] === 'doing').map(k => `${SERVICE[k].label} (${nameOf(v[`${k}_by`])})`);
-  return `<div class="other-jobs" title="${esc(doing.length ? `In progress: ${doing.join(', ')}` : '')}">Other jobs: ${esc(parts.join(' · '))}</div>`;
+  const label = myServiceKeys().length ? 'Other jobs' : 'Jobs';
+  return `<div class="other-jobs" title="${esc(doing.length ? `In progress: ${doing.join(', ')}` : '')}">${label}: ${esc(parts.join(' · '))}</div>`;
 }
 
 // A service this car wasn't asked for (and nobody has touched): shown faded
@@ -1319,6 +1323,7 @@ function renderTeam() {
         </div>
         <div class="staff-sees">${(p.services ?? []).length
           ? `👁 Sees only: <strong>${esc(SERVICES.filter(s => p.services.includes(s.key)).map(s => s.label).join(', '))}</strong>`
+          : p.handles_sold && !p.is_admin ? '👁 Sees <strong>no job buttons</strong> — only Ready to go on sold cars'
           : `👁 Sees <strong>every job</strong>${p.is_admin ? ' <button type="button" class="link-btn" data-show-jobs>Choose jobs</button>' : ' (nothing ticked)'}`}</div>
       </div>`).join('')}
     </div>`;
