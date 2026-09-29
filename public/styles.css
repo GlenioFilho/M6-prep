@@ -266,6 +266,37 @@ main .tabs, main .toolbar { max-width: 900px; margin-left: auto; margin-right: a
 .staff-flags .switch { font-size: 13px; }
 .card.flash { animation: flash 1.8s ease-out; }
 @keyframes flash { 0%, 45% { box-shadow: 0 0 0 3px var(--accent); } 100% { box-shadow: var(--shadow); } }
+/* Team screen: one clean row per person; tap to edit */
+.team-group { gap: 4px; }
+.person-row {
+  display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; cursor: pointer;
+  padding: 10px 4px; border: 0; border-top: 1px solid var(--border); background: none; color: var(--text);
+}
+.team-group h2 + .person-row { border-top: 0; }
+.person-row:hover .person-chevron { transform: translateX(2px); }
+.person-avatar {
+  width: 38px; height: 38px; flex: none; border-radius: 50%; display: grid; place-items: center;
+  background: var(--surface-2); border: 1px solid var(--border); font-weight: 700; font-size: 13px;
+}
+.person-main { flex: 1; min-width: 0; display: grid; gap: 4px; }
+.person-main strong { font-size: 15px; }
+.person-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.tag { font-size: 11.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); }
+.tag.admin { background: var(--brand); border-color: var(--brand); color: #fff; }
+@media (prefers-color-scheme: dark) { .tag.admin { background: #eceef1; border-color: #eceef1; color: #0b0b0c; } }
+.tag.job { background: var(--done-bg); border-color: var(--done-bd); color: var(--done-fg); }
+.tag.sold { background: var(--doing-bg); border-color: var(--doing-bd); color: var(--doing-fg); }
+.tag.alerts { background: #e8e4fb; border-color: #c4b8f3; color: #4b35b8; }
+@media (prefers-color-scheme: dark) { .tag.alerts { background: #2a2346; border-color: #4b3f86; color: #c7bcff; } }
+.tag.muted { color: var(--muted); font-weight: 500; }
+.person-chevron { font-size: 22px; color: var(--muted); transition: transform .15s; }
+.team-hint { font-size: 13px; text-align: center; margin: 0; }
+/* Person settings sheet */
+.setting { display: flex; align-items: center; justify-content: space-between; gap: 14px; cursor: pointer; color: var(--text); font-size: 14px; }
+.setting > span:first-child { display: grid; gap: 2px; }
+.setting strong { font-size: 14.5px; }
+.setting small { font-weight: 400; color: var(--muted); font-size: 12.5px; }
+.person-saved { margin: 0; font-size: 13px; min-height: 18px; }
 .staff-card { display: grid; gap: 8px; padding: 10px 0; border-top: 1px solid var(--border); }
 .staff-card:first-of-type { border-top: 0; }
 .pill.small span { padding: 5px 10px; font-size: 12.5px; }

@@ -1018,6 +1018,7 @@ async function purgeOld() {
 // ---------------------------------------------------------------------
 function openSheet(html) {
   const sheet = $('#sheet');
+  sheet.onchange = null;  // drop handlers left by the previous sheet
   sheet.innerHTML = html;
   $('#sheetBackdrop').hidden = false;
   document.body.style.overflow = 'hidden';
@@ -1303,86 +1304,95 @@ function openNewPassword() {
 // ---------------------------------------------------------------------
 // Team (admin)
 // ---------------------------------------------------------------------
-// Job pills for one person on the Team screen. Bosses (admins with no jobs)
-// don't get them unless someone taps "Choose jobs".
-const jobPills = p => `<div class="pills staff-svcs">${SERVICES.map(s => `<label class="pill small"><input type="checkbox" data-svc="${s.key}" ${(p.services ?? []).includes(s.key) ? 'checked' : ''}><span>${esc(s.label)}</span></label>`).join('')}</div>`;
+// Team screen: a short list of people (who they are at a glance); tapping one
+// opens their settings. What each setting does:
+//   services     — the jobs they do: they only see those bubbles on the cars
+//                  (nothing ticked = sees every job; purely visual)
+//   handles_sold — can Start prep / Ready to go / Delivered on sold cars
+//   sold_alerts  — gets prep / ready notifications and the 8am list
+function personTags(p) {
+  const tags = [];
+  if (p.is_admin) tags.push('<span class="tag admin">Admin</span>');
+  const jobs = SERVICES.filter(s => (p.services ?? []).includes(s.key)).map(s => s.label);
+  if (jobs.length) tags.push(...jobs.map(j => `<span class="tag job">${esc(j)}</span>`));
+  if (p.handles_sold) tags.push('<span class="tag sold">Sold cars</span>');
+  if (p.sold_alerts) tags.push('<span class="tag alerts">🔔 Alerts</span>');
+  if (!jobs.length && !p.handles_sold) tags.push(`<span class="tag muted">${p.is_admin ? 'Sees everything' : 'Sees every job'}</span>`);
+  return tags.join('');
+}
 
 function renderTeam() {
   const staff = [...S.profiles.values()].sort((a, b) => a.display_name.localeCompare(b.display_name));
-
-  // Each person's services decide which bubbles they see on the cards
-  // (anyone on staff can still mark any service; this only declutters).
+  const row = p => `<button type="button" class="person-row" data-person="${p.id}">
+    <span class="person-avatar">${esc(initials(p.display_name))}</span>
+    <span class="person-main"><strong>${esc(p.display_name)}</strong><span class="person-tags">${personTags(p)}</span></span>
+    <span class="person-chevron" aria-hidden="true">›</span>
+  </button>`;
+  const group = (title, people) => people.length ? `<div class="panel team-group">
+    <h2>${title} <span class="badge grey">${people.length}</span></h2>
+    ${people.map(row).join('')}
+  </div>` : '';
   $('#teamView').innerHTML = `
-    <div class="panel" id="staffPanel">
-      <h2>Staff</h2>
-      <p class="muted">Tick the jobs each person does — they’ll only see those on the cars. Leave everything unticked (e.g. salespeople, managers) to see every job.
-        <b>Sold cars</b>: can Start prep / Ready to go. <b>Sold alerts</b>: gets a notification when prep starts or a car is ready, and the list of the day’s deliveries at 8am.</p>
-      ${staff.map(p => `<div class="staff-card" data-id="${p.id}">
-        <div class="staff-row">
-          <input value="${esc(p.display_name)}" aria-label="Display name" data-name>
-          <label class="switch" title="Admin"><input type="checkbox" data-admin ${p.is_admin ? 'checked' : ''} ${p.id === S.me.id ? 'disabled' : ''}><span class="track"></span> Admin</label>
-        </div>
-        ${p.is_admin && !(p.services ?? []).length ? '' : jobPills(p)}
-        <div class="staff-flags">
-          <label class="switch" title="Can Start prep / Ready to go on sold cars"><input type="checkbox" data-flag="handles_sold" ${p.handles_sold ? 'checked' : ''}><span class="track"></span> Sold cars (Ready to go)</label>
-          <label class="switch" title="Gets a notification when prep starts / a car is ready, and the 8am list"><input type="checkbox" data-flag="sold_alerts" ${p.sold_alerts ? 'checked' : ''}><span class="track"></span> Sold alerts + 8am list</label>
-        </div>
-        <div class="staff-sees">${(p.services ?? []).length
-          ? `👁 Sees only: <strong>${esc(SERVICES.filter(s => p.services.includes(s.key)).map(s => s.label).join(', '))}</strong>`
-          : p.handles_sold && !p.is_admin ? '👁 Sees <strong>no job buttons</strong> — only Ready to go on sold cars'
-          : `👁 Sees <strong>every job</strong>${p.is_admin ? ' <button type="button" class="link-btn" data-show-jobs>Choose jobs</button>' : ' (nothing ticked)'}`}</div>
-      </div>`).join('')}
-    </div>`;
+    ${group('Managers', staff.filter(p => p.is_admin))}
+    ${group('Team', staff.filter(p => !p.is_admin))}
+    <p class="muted team-hint">Tap a person to change their jobs and settings. New people appear here once their login is created.</p>`;
 }
 
-async function onTeamClick(e) {
-  const show = e.target.closest('[data-show-jobs]');
-  if (show) {
-    const card = show.closest('.staff-card');
-    card.querySelector('.staff-sees').insertAdjacentHTML('beforebegin', jobPills(S.profiles.get(card.dataset.id)));
-    show.remove();
-    return;
-  }
-  const panel = e.target.closest('[data-role]');
-  if (!panel) return;
-  const role = panel.dataset.role;
-  const rm = e.target.closest('[data-remove]');
-  const add = e.target.closest('[data-add]');
-  try {
-    if (rm) {
-      const { error } = await sb.from('team_members').delete().match({ role, user_id: rm.dataset.remove });
-      if (error) throw error;
-      S.team[role].delete(rm.dataset.remove);
-    } else if (add) {
-      const userId = $('select', panel).value;
-      if (!userId) return;
-      const { error } = await sb.from('team_members').insert({ role, user_id: userId });
-      if (error) throw error;
-      S.team[role].add(userId);
-    } else return;
-    renderAll();
-  } catch (err) { toast(errorText(err), { error: true }); }
+function onTeamClick(e) {
+  const btn = e.target.closest('[data-person]');
+  if (btn) openPerson(btn.dataset.person);
 }
 
-async function onStaffChange(e) {
-  const row = e.target.closest('.staff-card');
-  if (!row) return;
-  const id = row.dataset.id;
+function openPerson(id) {
   const p = S.profiles.get(id);
-  const patch = e.target.matches('[data-admin]') ? { is_admin: e.target.checked }
-    : e.target.matches('[data-flag]') ? { [e.target.dataset.flag]: e.target.checked }
-    : e.target.matches('[data-svc]') ? { services: $$('[data-svc]', row).filter(b => b.checked).map(b => b.dataset.svc) }
-    : { display_name: clean(e.target.value) };
-  if (patch.display_name === '') { e.target.value = p.display_name; return; }
+  if (!p) return;
+  const me = p.id === S.me.id;
+  const sw = (attr, on, title, help, disabled = false) => `<label class="setting">
+    <span><strong>${title}</strong><small>${help}</small></span>
+    <span class="switch"><input type="checkbox" ${attr} ${on ? 'checked' : ''} ${disabled ? 'disabled' : ''}><span class="track"></span></span>
+  </label>`;
+  const sheet = openSheet(`<div class="form person-sheet" data-person-id="${p.id}">
+    ${sheetHead(p.display_name)}
+    <label>Name<input data-field="display_name" value="${esc(p.display_name)}" autocapitalize="words"></label>
+
+    <div class="section-label">Jobs they do</div>
+    <p class="hint" style="margin:0">They only see these on the cars. Leave all off to see every job.</p>
+    <div class="pills">${SERVICES.map(s => `<label class="pill"><input type="checkbox" data-svc="${s.key}" ${(p.services ?? []).includes(s.key) ? 'checked' : ''}><span>${esc(s.label)}</span></label>`).join('')}</div>
+
+    <div class="section-label">Sold cars</div>
+    ${sw('data-flag="handles_sold"', p.handles_sold, 'Looks after sold cars', 'Start prep → Ready to go → Delivered.')}
+    ${sw('data-flag="sold_alerts"', p.sold_alerts, 'Sold alerts', 'Notification when prep starts or a car is ready, and the day’s list at 8am.')}
+
+    <div class="section-label">Access</div>
+    ${sw('data-flag="is_admin"', p.is_admin, 'Admin', me ? 'You can’t remove your own admin.' : 'Adds and sells cars, edits, loans, Team and Pay report.', me)}
+
+    <p class="person-saved muted" aria-live="polite"></p>
+    <div class="sheet-actions"><button type="button" class="btn primary" data-close>Done</button></div>
+  </div>`);
+  sheet.onchange = e => savePerson(p.id, e.target);
+}
+
+async function savePerson(id, input) {
+  const p = S.profiles.get(id);
+  const box = input.closest('.person-sheet');
+  let patch;
+  if (input.dataset.svc) patch = { services: $$('[data-svc]', box).filter(b => b.checked).map(b => b.dataset.svc) };
+  else if (input.dataset.flag) patch = { [input.dataset.flag]: input.checked };
+  else if (input.dataset.field === 'display_name') {
+    const name = clean(input.value);
+    if (!name) { input.value = p.display_name; return; }
+    patch = { display_name: name };
+  } else return;
   const { error } = await sb.from('profiles').update(patch).eq('id', id);
   if (error) {
     toast(errorText(error), { error: true });
-    renderTeam();
+    openPerson(id);  // put the switches back as they were
     return;
   }
   Object.assign(p, patch);
+  if (patch.display_name) $('.sheet-head h2', box).textContent = patch.display_name;
+  $('.person-saved', box).textContent = '✓ Saved';
   renderAll();
-  toast('Saved');
 }
 
 // ---------------------------------------------------------------------
@@ -1998,7 +2008,6 @@ function wireUi() {
   $('#backBtn').addEventListener('click', () => setView('main'));
   $('#meBtn').addEventListener('click', openAccount);
   $('#teamView').addEventListener('click', onTeamClick);
-  $('#teamView').addEventListener('change', onStaffChange);
 
   $('#sheetBackdrop').addEventListener('click', e => {
     if (e.target.id === 'sheetBackdrop' || e.target.closest('[data-close]')) closeSheet();
