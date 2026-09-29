@@ -165,7 +165,11 @@ main .tabs, main .toolbar { max-width: 900px; margin-left: auto; margin-right: a
   .tabs .count { display: block; width: fit-content; margin: 3px auto 0; min-width: 18px; font-size: 11px; }
 }
 .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 12px 16px 4px; }
-.toolbar #search { flex: 1 1 220px; }
+.toolbar #search {
+  flex: 1 1 220px; padding-left: 38px;
+  /* magnifying glass */
+  background: var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238a8f98' stroke-width='2.2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M20 20l-4-4'/%3E%3C/svg%3E") no-repeat 12px center / 18px 18px;
+}
 
 .switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14px; color: var(--text); }
 .switch input { position: absolute; opacity: 0; pointer-events: none; }
