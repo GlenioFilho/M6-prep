@@ -342,7 +342,6 @@ main .tabs, main .toolbar { max-width: 900px; margin-left: auto; margin-right: a
   box-shadow: 0 6px 18px rgba(216,35,42,.35);
 }
 .fab svg { width: 22px; height: 22px; }
-.fab.secondary { background: var(--surface); color: var(--text); border: 1px solid var(--border); box-shadow: 0 6px 18px rgba(0,0,0,.25); }
 .photo-tools { display: flex; align-items: center; gap: 10px; margin: 8px 0 0; font-size: 13px; }
 .photo-tools .muted { margin-left: auto; }
 .photo-pick input { width: 20px; height: 20px; flex: none; accent-color: var(--accent); }
