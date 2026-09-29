@@ -415,10 +415,10 @@ function colourHTML(color) {
 }
 
 // Which service bubbles this person sees on the cards: the jobs ticked for
-// them on the Team screen. Admins, and people with nothing ticked, see all.
+// them on the Team screen (admins too). People with nothing ticked see all.
 function myServiceKeys() {
   const mine = S.me?.services ?? [];
-  return isAdmin() || !mine.length ? SERVICES.map(s => s.key) : mine;
+  return mine.length ? mine : SERVICES.map(s => s.key);
 }
 
 // One quiet line about the jobs this person doesn't see, e.g. "Other jobs: 1 in progress · 2 done"
@@ -1243,7 +1243,7 @@ function renderTeam() {
   $('#teamView').innerHTML = `
     <div class="panel" id="staffPanel">
       <h2>Staff</h2>
-      <p class="muted">Tick the jobs each person does — they’ll only see those on the cars. Leave everything unticked (e.g. salespeople) to see every job. Admins always see every job.</p>
+      <p class="muted">Tick the jobs each person does — they’ll only see those on the cars. Leave everything unticked (e.g. salespeople, managers) to see every job.</p>
       ${staff.map(p => `<div class="staff-card" data-id="${p.id}">
         <div class="staff-row">
           <input value="${esc(p.display_name)}" aria-label="Display name" data-name>
