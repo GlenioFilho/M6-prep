@@ -331,14 +331,21 @@ main .tabs, main .toolbar { max-width: 900px; margin-left: auto; margin-right: a
 .card-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
 .card-actions .spacer { flex: 1; }
 
-.fab {
+.fab-row {
   position: fixed; right: max(16px, calc(50vw - 364px)); bottom: max(18px, env(safe-area-inset-bottom));
-  z-index: 15; display: inline-flex; align-items: center; gap: 8px;
+  z-index: 15; display: flex; gap: 10px; align-items: center;
+}
+.fab {
+  display: inline-flex; align-items: center; gap: 8px;
   height: 54px; padding: 0 20px 0 16px; border-radius: 27px; border: 0; cursor: pointer;
   background: var(--accent); color: #fff; font-weight: 700; font-size: 16px;
   box-shadow: 0 6px 18px rgba(216,35,42,.35);
 }
 .fab svg { width: 22px; height: 22px; }
+.fab.secondary { background: var(--surface); color: var(--text); border: 1px solid var(--border); box-shadow: 0 6px 18px rgba(0,0,0,.25); }
+.photo-tools { display: flex; align-items: center; gap: 10px; margin: 8px 0 0; font-size: 13px; }
+.photo-tools .muted { margin-left: auto; }
+.photo-pick input { width: 20px; height: 20px; flex: none; accent-color: var(--accent); }
 
 /* ---------- Sheets (modals) ---------- */
 .sheet-backdrop {

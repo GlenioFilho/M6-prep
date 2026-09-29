@@ -6,7 +6,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, LOGIN_DOMAIN, VAPID_PUBLIC_KEY } from 
 // ---------------------------------------------------------------------
 // Shown in the help sheet, so anyone can check their phone has the latest app.
 // Keep in step with the ?v= in index.html.
-const APP_VERSION = '37';
+const APP_VERSION = '38';
 const BUCKET = 'vehicle-photos';
 const PURGE_DAYS = 30;
 
@@ -388,6 +388,7 @@ function renderTabs() {
   // Adding stock and recording sales are admin-only (also enforced in the database)
   fab.hidden = !['stock', 'sold'].includes(S.tab) || !isAdmin();
   fab.innerHTML = `${ICON.plus}<span>${S.tab === 'stock' ? 'New stock' : 'Sold'}</span>`;
+  $('#photosFab').hidden = S.tab !== 'stock' || !isAdmin();
 }
 
 function visibleVehicles() {
@@ -1142,6 +1143,71 @@ function openPhoto(v) {
 }
 
 // "Sold" button: pick a stock car, or add one that was never in stock.
+// Stock → "Photos": tick the cars that need photos and print a list for the day.
+function openPhotoPicker() {
+  // Only cars on site (not out on loan or at the bodyshop)
+  const cars = [...S.vehicles.values()].filter(v => v.status === 'stock' && !['loan', 'bodyshop'].includes(v.hold))
+    .sort((a, b) => [a.make, a.model].join(' ').localeCompare([b.make, b.model].join(' ')));
+  const picked = new Set();
+  const sheet = openSheet(`${sheetHead('Photos list')}
+    <p class="muted" style="margin:0 0 8px">Tick the cars that need photos, then print the list.</p>
+    <input type="search" id="photoSearch" placeholder="Search stock by plate, make or model" autocomplete="off">
+    <div class="photo-tools">
+      <button type="button" class="link-btn" id="photoAll">Select all</button>
+      <button type="button" class="link-btn" id="photoNone">Clear</button>
+      <span class="muted" id="photoCount">0 selected</span>
+    </div>
+    <div class="pick-list" id="photoList"></div>
+    <div class="sheet-actions">
+      <button type="button" class="btn ghost" data-close>Cancel</button>
+      <button type="button" class="btn primary" id="photoPrint" disabled>🖨 Print photo list</button>
+    </div>`);
+
+  const draw = () => {
+    const q = norm($('#photoSearch', sheet).value);
+    const shown = cars.filter(v => !q || [v.reg_ie, v.reg_imp, v.make, v.model].some(f => norm(f).includes(q)));
+    $('#photoList', sheet).innerHTML = shown.length ? shown.map(v => {
+      const url = v.photo_path && S.photoUrls.get(v.photo_path);
+      return `<label class="pick photo-pick">
+        <input type="checkbox" data-id="${v.id}" ${picked.has(v.id) ? 'checked' : ''}>
+        ${url ? `<img class="thumb" src="${esc(url)}" alt="">` : `<span class="thumb placeholder">${ICON.car}</span>`}
+        <span>${plateHTML(v)}<span class="muted">${esc([v.make, v.model].map(clean).filter(Boolean).join(' '))}${clean(v.color) ? ` · ${esc(v.color)}` : ''}</span></span>
+      </label>`;
+    }).join('') : '<p class="empty">No stock cars match.</p>';
+  };
+  const update = () => {
+    $('#photoCount', sheet).textContent = `${picked.size} selected`;
+    $('#photoPrint', sheet).disabled = !picked.size;
+  };
+  draw();
+  $('#photoSearch', sheet).addEventListener('input', draw);
+  $('#photoList', sheet).addEventListener('change', e => {
+    const id = e.target.dataset.id;
+    if (!id) return;
+    e.target.checked ? picked.add(id) : picked.delete(id);
+    update();
+  });
+  $('#photoAll', sheet).onclick = () => { $$('#photoList [data-id]', sheet).forEach(b => picked.add(b.dataset.id)); draw(); update(); };
+  $('#photoNone', sheet).onclick = () => { picked.clear(); draw(); update(); };
+  $('#photoPrint', sheet).onclick = () => printPhotoList(cars.filter(v => picked.has(v.id)));
+}
+
+function printPhotoList(cars) {
+  if (!cars.length) return;
+  printDoc({
+    title: 'Photos', summary: plural(cars.length, 'car'),
+    how: 'Tick ☐ when the photos of a car are done.',
+    columns: ['Plate', 'Car', 'Colour', 'Notes', 'Photos done'],
+    rows: cars.map(v => ({ cells: [
+      { html: plateCell(v), cls: 'plate-cell' },
+      { html: `<strong>${esc([v.make, v.model].map(clean).filter(Boolean).join(' ') || 'Unknown vehicle')}</strong>` },
+      { html: esc(v.color || '—') },
+      { html: esc(v.notes || ''), cls: 'notes-cell' },
+      { html: '<span class="tick">☐</span>' },
+    ] })),
+  });
+}
+
 function openSoldPicker() {
   const sheet = openSheet(`${sheetHead('Which car was sold?')}
     <input type="search" id="pickSearch" placeholder="Search stock by plate, make or model" autocomplete="off">
@@ -2181,6 +2247,8 @@ function wireUi() {
   $('#search').addEventListener('input', e => { S.search = e.target.value; renderList(); });
   $('#purgeBtn').addEventListener('click', purgeOld);
   $('#printBtn').addEventListener('click', printCurrentList);
+  $('#photosFab').innerHTML = `${ICON.camera}<span>Photos</span>`;
+  $('#photosFab').addEventListener('click', openPhotoPicker);
   $('#fab').addEventListener('click', () => (S.tab === 'stock' ? openVehicleForm() : openSoldPicker()));
   $('#list').addEventListener('click', onListClick);
 
