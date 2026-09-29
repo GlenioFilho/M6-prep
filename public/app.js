@@ -368,6 +368,12 @@ function renderTabs() {
     b.setAttribute('aria-selected', b.dataset.tab === S.tab);
     $('.count', b).textContent = counts[b.dataset.tab];
   }
+  // Red badge on Sold: how many go out today (overdue included)
+  const today = [...S.vehicles.values()].filter(dueToday).length;
+  const badge = $('[data-tab=sold] .today');
+  badge.hidden = !today;
+  badge.textContent = today;
+  badge.title = `${today} to deliver today`;
   $('#purgeBtn').hidden = S.tab !== 'delivered';
   const print = $('#printBtn');
   print.hidden = !['sold', 'dent', 'loan'].includes(S.tab);
@@ -458,6 +464,50 @@ function detailRow(label, value, html = null) {
   return clean(value) ? `<div><dt>${label}</dt><dd>${html ?? esc(value)}</dd></div>` : '';
 }
 
+// ---------------------------------------------------------------------
+// "Ready to go": the sold-cars person (Profiles → handles_sold) or an admin
+// taps Start prep (the boss gets a notification), then Ready to go when done.
+// ---------------------------------------------------------------------
+const canReady = () => isAdmin() || !!S.me?.handles_sold;
+const dueToday = v => isSold(v) && !!v.delivery_date && dayDiff(v.delivery_date) <= 0;
+
+function readyButtons(v) {
+  if (!canReady()) return '';
+  if (v.ready_state === 'doing') return `<button class="btn small accent" data-act="ready">${ICON.check} Ready to go</button>`;
+  if (v.ready_state === 'done') return `<button class="btn small ghost" data-act="deliver">Delivered</button>`;
+  return `<button class="btn small primary" data-act="ready">▶ Start prep</button>`;
+}
+
+// Everyone sees where the delivery prep is at
+function readyStatusHTML(v) {
+  if (v.ready_state === 'doing') {
+    return `<div class="ready-bar doing"><span class="ring half"></span> Prep for delivery · <strong>${esc(nameOf(v.ready_by))}</strong> since ${esc(fmtDate(v.ready_started_at))}</div>`;
+  }
+  if (v.ready_state === 'done') {
+    return `<div class="ready-bar done">${ICON.check} Ready to go · ${esc(nameOf(v.ready_by))} · ${esc(fmtDate(v.ready_at))}</div>`;
+  }
+  return '';
+}
+
+async function cycleReady(v, btn) {
+  if (!canReady()) return;
+  const next = v.ready_state === 'doing' ? 'done' : 'doing';
+  if (next === 'done' && !v.done_at && !confirmTap(btn, 'Jobs not all done — tap again')) return;
+  const before = { ...v };
+  const now = new Date().toISOString();
+  S.vehicles.set(v.id, { ...v, ready_state: next, ready_by: v.ready_by ?? S.me.id,
+    ready_started_at: v.ready_started_at ?? now, ready_at: next === 'done' ? now : null });
+  renderAll();
+  try {
+    await updateVehicle(v.id, { ready_state: next });
+    toast(next === 'doing' ? 'Prep started — the boss has been told' : 'Ready to go ✓');
+  } catch (err) {
+    S.vehicles.set(v.id, before);
+    toast(errorText(err), { error: true });
+  }
+  renderAll();
+}
+
 function cardHTML(v) {
   const url = v.photo_path && S.photoUrls.get(v.photo_path);
   const tab = tabOf(v);
@@ -478,7 +528,8 @@ function cardHTML(v) {
     if (when) chips.push(`<span class="chip${soon ? ' warn' : ''}">Delivery: ${esc(when)}</span>`);
     chips.push(v.stock_status === 'due_in' ? '<span class="chip warn">Due in</span>' : '<span class="chip">On site</span>');
   }
-  if (v.status !== 'delivered' && v.services.length && v.done_at) chips.push('<span class="chip ok">All services done</span>');
+  if (sold && v.ready_state === 'done') chips.push(`<span class="chip ok ready">✓ READY TO GO</span>`);
+  if (v.status !== 'delivered' && v.services.length && v.done_at && v.ready_state !== 'done') chips.push('<span class="chip ok">All services done</span>');
   if (v.status === 'delivered') chips.push(`<span class="chip ok">Delivered ${esc(fmtDate(v.delivered_at))}</span>`);
 
   const phone = clean(v.loan_phone);
@@ -498,11 +549,12 @@ function cardHTML(v) {
   let actions;
   if (tab === 'delivered') actions = b('reopen', 'Reopen');
   else if (tab === 'loan') actions = b('edit', 'Edit') + b('loan', 'Loan details') + b('release', `${ICON.check} Returned`, 'accent');
-  else if (sold) actions = b('edit', 'Edit') + b('dent', dentLabel) + b('deliver', `${ICON.check} Delivered`, 'accent');
+  else if (sold) actions = b('edit', 'Edit') + b('dent', dentLabel) + readyButtons(v);
   else actions = b('edit', 'Edit') + b('loan', 'Loan') + b('dent', dentLabel) + (isAdmin() ? b('sell', 'Mark sold', 'primary') : '');
   const remove = isAdmin() && v.status !== 'delivered' ? `${b('remove', 'Remove', 'ghost danger')}<span class="spacer"></span>` : '';
 
-  const flagged = (sold && v.urgent) || (tab === 'loan' && v.loan_due && dayDiff(v.loan_due) < 0);
+  // Red outline: urgent, going out today (or overdue), or a loan car that's late back
+  const flagged = (sold && (v.urgent || dueToday(v))) || (tab === 'loan' && v.loan_due && dayDiff(v.loan_due) < 0);
   return `<article class="card${flagged ? ' urgent' : ''}" data-id="${v.id}">
     <div class="card-head">
       ${url ? `<img class="thumb" src="${esc(url)}" alt="" data-act="photo" loading="lazy">` : ''}
@@ -520,6 +572,7 @@ function cardHTML(v) {
       .filter(s => v.status !== 'delivered' || !isExtra(v, s.key))
       .map(s => serviceHTML(v, s.key)).join('')}</div>
     ${otherJobsHTML(v)}
+    ${sold ? readyStatusHTML(v) : ''}
     <div class="card-actions">${remove}${actions}</div>
   </article>`;
 }
@@ -669,8 +722,10 @@ function printSoldList() {
   for (const v of cars) {
     const g = deliveryGroup(v);
     if (g.key !== current) { current = g.key; rows.push({ group: g.title }); }
-    const where = v.hold === 'loan' ? '<strong>ON LOAN</strong>'
-      : v.stock_status === 'due_in' ? '<strong>NOT ON SITE YET</strong>' : 'On site';
+    const where = (v.hold === 'loan' ? '<strong>ON LOAN</strong>'
+      : v.stock_status === 'due_in' ? '<strong>NOT ON SITE YET</strong>' : 'On site')
+      + (v.ready_state === 'done' ? '<br><strong>✓ READY TO GO</strong>'
+        : v.ready_state === 'doing' ? `<br>Prep: ${esc(nameOf(v.ready_by))}` : '');
     const notes = [clean(v.notes), clean(v.mechanical_notes) && `Mechanical: ${clean(v.mechanical_notes)}`,
       clean(v.vrt_nct) && `VRT/NCT: ${clean(v.vrt_nct)}`, inDent(v) && `Dent: ${clean(v.dent_notes) || 'on the dent list'}`]
       .filter(Boolean).map(esc).join('<br>');
@@ -762,6 +817,7 @@ async function onListClick(e) {
   if (act === 'release') return releaseHold(v);
   if (act === 'dentdone') return dentDone(v);
 
+  if (act === 'ready') return cycleReady(v, btn);
   if (act === 'deliver') {
     if (!v.done_at && !confirmTap(btn, 'Not finished — tap again')) return;
     return setStatus(v, 'delivered', { undo: true });
@@ -1247,13 +1303,18 @@ function renderTeam() {
   $('#teamView').innerHTML = `
     <div class="panel" id="staffPanel">
       <h2>Staff</h2>
-      <p class="muted">Tick the jobs each person does — they’ll only see those on the cars. Leave everything unticked (e.g. salespeople, managers) to see every job.</p>
+      <p class="muted">Tick the jobs each person does — they’ll only see those on the cars. Leave everything unticked (e.g. salespeople, managers) to see every job.
+        <b>Sold cars</b>: can Start prep / Ready to go. <b>Sold alerts</b>: gets a notification when prep starts or a car is ready, and the list of the day’s deliveries at 8am.</p>
       ${staff.map(p => `<div class="staff-card" data-id="${p.id}">
         <div class="staff-row">
           <input value="${esc(p.display_name)}" aria-label="Display name" data-name>
           <label class="switch" title="Admin"><input type="checkbox" data-admin ${p.is_admin ? 'checked' : ''} ${p.id === S.me.id ? 'disabled' : ''}><span class="track"></span> Admin</label>
         </div>
         ${p.is_admin && !(p.services ?? []).length ? '' : jobPills(p)}
+        <div class="staff-flags">
+          <label class="switch" title="Can Start prep / Ready to go on sold cars"><input type="checkbox" data-flag="handles_sold" ${p.handles_sold ? 'checked' : ''}><span class="track"></span> Sold cars (Ready to go)</label>
+          <label class="switch" title="Gets a notification when prep starts / a car is ready, and the 8am list"><input type="checkbox" data-flag="sold_alerts" ${p.sold_alerts ? 'checked' : ''}><span class="track"></span> Sold alerts + 8am list</label>
+        </div>
         <div class="staff-sees">${(p.services ?? []).length
           ? `👁 Sees only: <strong>${esc(SERVICES.filter(s => p.services.includes(s.key)).map(s => s.label).join(', '))}</strong>`
           : `👁 Sees <strong>every job</strong>${p.is_admin ? ' <button type="button" class="link-btn" data-show-jobs>Choose jobs</button>' : ' (nothing ticked)'}`}</div>
@@ -1296,6 +1357,7 @@ async function onStaffChange(e) {
   const id = row.dataset.id;
   const p = S.profiles.get(id);
   const patch = e.target.matches('[data-admin]') ? { is_admin: e.target.checked }
+    : e.target.matches('[data-flag]') ? { [e.target.dataset.flag]: e.target.checked }
     : e.target.matches('[data-svc]') ? { services: $$('[data-svc]', row).filter(b => b.checked).map(b => b.dataset.svc) }
     : { display_name: clean(e.target.value) };
   if (patch.display_name === '') { e.target.value = p.display_name; return; }
@@ -1770,7 +1832,8 @@ const HELP = [
   { id: 'sold', title: 'Sold cars & the daily sheet', tabs: ['sold'], body: `
     <p>The Sold tab groups cars by delivery day: <b>Overdue</b>, <b>Today</b>, <b>Tomorrow</b>…</p>
     <p>Each morning tap <b>🖨 Print sold list</b> for the day’s job sheet. Work top to bottom and tick ☐ as you go — and tap the job in the app too.</p>
-    <p>When the car goes to the customer, tap <b>Delivered</b>.</p>` },
+    <p>Cars going out <b>today</b> have a red outline, and the red number on the Sold tab says how many.</p>
+    <p><b>Delivery prep</b> (the sold-cars person): tap <b>▶ Start prep</b> when you take the car — the boss gets a notification — and <b>✓ Ready to go</b> when it’s done. When the customer takes it, tap <b>Delivered</b>.</p>` },
   { id: 'dent', title: 'Dent list', tabs: ['dent'], body: `
     <p>Tap <b>Dent</b> on a car, write what needs fixing and pick the <b>dent day</b>. The car stays where it is — it’s just added to the list.</p>
     <p>On the day, open the <b>Dent</b> tab and tap <b>🖨 Print dent list</b>. When a car is fixed, tap <b>Done</b>.</p>` },

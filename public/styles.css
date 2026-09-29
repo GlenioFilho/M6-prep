@@ -252,6 +252,18 @@ main .tabs, main .toolbar { max-width: 900px; margin-left: auto; margin-right: a
 .svc.done  { background: var(--done-bg);  color: var(--done-fg);  border-color: var(--done-bd); }
 .svc.armed { outline: 2px solid var(--urgent); outline-offset: 1px; }
 .other-jobs { font-size: 12px; color: var(--muted); margin-top: -4px; }
+/* Delivery prep status on sold cars */
+.ready-bar { display: flex; align-items: center; gap: 7px; padding: 7px 12px; border-radius: 10px; font-size: 13px; border: 1.5px solid; }
+.ready-bar svg { width: 16px; height: 16px; flex: none; }
+.ready-bar .ring { width: 14px; height: 14px; border-radius: 50%; border: 2px solid currentColor; background: linear-gradient(90deg, currentColor 50%, transparent 50%); flex: none; }
+.ready-bar.doing { background: var(--doing-bg); color: var(--doing-fg); border-color: var(--doing-bd); }
+.ready-bar.done { background: var(--done-bg); color: var(--done-fg); border-color: var(--done-bd); font-weight: 600; }
+.chip.ready { font-weight: 700; }
+/* Red "due today" number on the Sold tab */
+.tabs .count.today { background: var(--urgent); color: #fff; margin-left: 3px; font-weight: 700; }
+@media (max-width: 640px) { .tabs .count.today { display: inline-block; margin: 3px 0 0 2px; } .tabs button[data-tab=sold] .count:not(.today) { display: inline-block; } }
+.staff-flags { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+.staff-flags .switch { font-size: 13px; }
 .card.flash { animation: flash 1.8s ease-out; }
 @keyframes flash { 0%, 45% { box-shadow: 0 0 0 3px var(--accent); } 100% { box-shadow: var(--shadow); } }
 .staff-card { display: grid; gap: 8px; padding: 10px 0; border-top: 1px solid var(--border); }

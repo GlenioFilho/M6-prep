@@ -13,8 +13,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <!-- Bump ?v= after changing these files so phones load the new version -->
-  <link rel="stylesheet" href="styles.css?v=19">
-  <script type="module" src="app.js?v=19"></script>
+  <link rel="stylesheet" href="styles.css?v=20">
+  <script type="module" src="app.js?v=20"></script>
 </head>
 <body>
   <!-- Shown until config.js is filled in -->
@@ -57,7 +57,7 @@
 
     <main id="mainView">
       <nav class="tabs" role="tablist">
-        <button type="button" role="tab" data-tab="sold" title="Sold, waiting for delivery">Sold <span class="count"></span></button>
+        <button type="button" role="tab" data-tab="sold" title="Sold, waiting for delivery">Sold <span class="count"></span><span class="count today" hidden></span></button>
         <button type="button" role="tab" data-tab="stock">Stock <span class="count"></span></button>
         <button type="button" role="tab" data-tab="in_prep" title="Cars someone is working on now">In prep <span class="count"></span></button>
         <button type="button" role="tab" data-tab="dent">Dent <span class="count"></span></button>
