@@ -6,7 +6,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, LOGIN_DOMAIN, VAPID_PUBLIC_KEY } from 
 // ---------------------------------------------------------------------
 // Shown in the help sheet, so anyone can check their phone has the latest app.
 // Keep in step with the ?v= in index.html.
-const APP_VERSION = '39';
+const APP_VERSION = '40';
 const BUCKET = 'vehicle-photos';
 const PURGE_DAYS = 30;
 
@@ -2277,12 +2277,83 @@ function tickClock() {
   $('#clock span').textContent = now.toLocaleDateString('en-IE', { weekday: 'short', day: 'numeric', month: 'short' });
 }
 
+// ---------------------------------------------------------------------
+// Staying up to date without closing the app
+// ---------------------------------------------------------------------
+// 1) New app version: the published index.html names the current version
+//    (app.js?v=N). Check when the app comes back to the screen and every few
+//    minutes; reload by itself unless someone is in the middle of a form.
+// 2) Colleagues' changes: phones drop the live connection while the screen is
+//    off, so reload the data and reconnect when the app comes back.
+const VERSION_CHECK_MS = 3 * 60 * 1000;
+let hiddenAt = null;
+let updateOffered = false;
+
+async function latestVersion() {
+  try {
+    const res = await fetch(`./?check=${Date.now()}`, { cache: 'no-store' });
+    const m = (await res.text()).match(/app\.js\?v=(\d+)/);
+    return m ? m[1] : null;
+  } catch {
+    return null;
+  }
+}
+
+const busyEditing = () => !$('#sheetBackdrop').hidden
+  || ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
+
+// Load the new version from a fresh address, so no cached page gets in the
+// way — and never more than once per version (no reload loops).
+function loadVersion(latest) {
+  try {
+    if (sessionStorage.getItem('m6.updatedTo') === latest) return false;
+    sessionStorage.setItem('m6.updatedTo', latest);
+  } catch {}
+  const tab = new URLSearchParams(location.search).get('tab');
+  location.replace(`./?u=${latest}${tab ? `&tab=${tab}` : ''}`);
+  return true;
+}
+
+async function checkForUpdate() {
+  const latest = await latestVersion();
+  if (!latest || Number(latest) <= Number(APP_VERSION)) return;
+  if (!busyEditing() && loadVersion(latest)) return;
+  if (updateOffered) return;
+  updateOffered = true;
+  toast('A new version of the app is ready', {
+    action: { label: 'Update', run: () => { try { sessionStorage.removeItem('m6.updatedTo'); } catch {} loadVersion(latest); } },
+    ms: 60000,
+  });
+}
+
+async function refreshData() {
+  if (!S.session || !S.me) return;
+  try {
+    await loadAll();
+    renderAll();
+    subscribe();
+  } catch { /* offline for a moment — the next return will try again */ }
+}
+
+function wireAutoUpdate() {
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { hiddenAt = Date.now(); return; }
+    const away = hiddenAt ? Date.now() - hiddenAt : 0;
+    hiddenAt = null;
+    checkForUpdate();
+    if (away > 20 * 1000) refreshData();  // back after a while: fresh data + live updates
+  });
+  window.addEventListener('online', refreshData);
+  setInterval(() => { if (!document.hidden) checkForUpdate(); }, VERSION_CHECK_MS);
+}
+
 function boot() {
   if (!sb) { showScreen('setup'); return; }
   tickClock();
   setInterval(tickClock, 15000);
   registerSw();
   wireUi();
+  wireAutoUpdate();
   sb.auth.onAuthStateChange((event, session) => {
     const changed = (session?.user?.id ?? null) !== (S.session?.user?.id ?? null) || event === 'INITIAL_SESSION';
     S.session = session;
