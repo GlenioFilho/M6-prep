@@ -6,7 +6,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, LOGIN_DOMAIN, VAPID_PUBLIC_KEY } from 
 // ---------------------------------------------------------------------
 // Shown in the help sheet, so anyone can check their phone has the latest app.
 // Keep in step with the ?v= in index.html.
-const APP_VERSION = '45';
+const APP_VERSION = '46';
 const BUCKET = 'vehicle-photos';
 const PURGE_DAYS = 30;
 
@@ -561,7 +561,6 @@ function cardHTML(v) {
   if (inDent(v)) chips.push(`<span class="chip hold">DENT${v.dent_date ? ` · ${esc(dayName(v.dent_date))}` : ''}</span>`);
   if (sold && tab !== 'sold') chips.push('<span class="chip sold">SOLD</span>');
   if (sold && v.urgent) chips.push('<span class="chip urgent">URGENT</span>');
-  if ((tab === 'stock' || tab === 'sold') && untouched(v)) chips.push('<span class="chip new">NEW · NOTHING DONE YET</span>');
   if (sold) {
     const when = deliveryLabel(v);
     const soon = v.delivery_date && dayDiff(v.delivery_date) <= 0;
