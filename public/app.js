@@ -6,7 +6,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, LOGIN_DOMAIN, VAPID_PUBLIC_KEY } from 
 // ---------------------------------------------------------------------
 // Shown in the help sheet, so anyone can check their phone has the latest app.
 // Keep in step with the ?v= in index.html.
-const APP_VERSION = '41';
+const APP_VERSION = '42';
 const BUCKET = 'vehicle-photos';
 const PURGE_DAYS = 30;
 
@@ -600,7 +600,7 @@ function cardHTML(v) {
     actions = edit + body + dent + readyButtons(v) + deliver;
   }
   else actions = edit + (isAdmin() ? b('loan', 'Loan') : '') + body + dent + (isAdmin() ? b('sell', 'Mark sold', 'primary') : '');
-  const remove = isAdmin() && v.status !== 'delivered' ? `${b('remove', 'Remove', 'ghost danger')}<span class="spacer"></span>` : '';
+  const remove = isAdmin() && v.status !== 'delivered' ? `${b('remove', 'Delete', 'ghost danger')}<span class="spacer"></span>` : '';
 
   // Red outline: urgent, going out today (or overdue), or a loan / bodyshop car that's late back
   const flagged = (sold && (v.urgent || dueToday(v))) || (tab === 'loan' && v.loan_due && dayDiff(v.loan_due) < 0)
@@ -905,14 +905,14 @@ async function onListClick(e) {
   }
   if (act === 'reopen') return setStatus(v, 'in_prep');
   if (act === 'remove') {
-    if (!confirmTap(btn)) return;
+    if (!confirmTap(btn, 'Tap again to delete')) return;
     try {
       const { error } = await sb.from('vehicles').delete().eq('id', v.id);
       if (error) throw error;
       S.vehicles.delete(v.id);
       await removePhotos([v.photo_path]);
       renderAll();
-      toast('Vehicle removed');
+      toast('Vehicle deleted');
     } catch (err) { toast(errorText(err), { error: true }); }
   }
 }
