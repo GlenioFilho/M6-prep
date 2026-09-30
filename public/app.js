@@ -6,7 +6,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, LOGIN_DOMAIN, VAPID_PUBLIC_KEY } from 
 // ---------------------------------------------------------------------
 // Shown in the help sheet, so anyone can check their phone has the latest app.
 // Keep in step with the ?v= in index.html.
-const APP_VERSION = '46';
+const APP_VERSION = '47';
 const BUCKET = 'vehicle-photos';
 const PURGE_DAYS = 30;
 
@@ -406,7 +406,7 @@ function visibleVehicles() {
   const t = x => new Date(x ?? 0).getTime();
   const due = d => d ?? '9999-12-31';
   const sorts = {
-    stock: (a, b) => (workStage(a) - workStage(b)) || (t(b.created_at) - t(a.created_at)),
+    stock: (a, b) => (b.urgent - a.urgent) || (workStage(a) - workStage(b)) || (t(b.created_at) - t(a.created_at)),
     // Sold cars being worked on first (they're the priority), then by delivery date
     in_prep: (a, b) => (isSold(b) - isSold(a)) || (b.urgent - a.urgent) || due(a.delivery_date).localeCompare(due(b.delivery_date)),
     sold: (a, b) => due(a.delivery_date).localeCompare(due(b.delivery_date)) || (b.urgent - a.urgent)
@@ -560,7 +560,8 @@ function cardHTML(v) {
   }
   if (inDent(v)) chips.push(`<span class="chip hold">DENT${v.dent_date ? ` · ${esc(dayName(v.dent_date))}` : ''}</span>`);
   if (sold && tab !== 'sold') chips.push('<span class="chip sold">SOLD</span>');
-  if (sold && v.urgent) chips.push('<span class="chip urgent">URGENT</span>');
+  if (v.urgent && v.status !== 'delivered') chips.push('<span class="chip urgent">URGENT</span>');
+  if (!sold && v.status === 'stock' && v.stock_status === 'due_in') chips.push('<span class="chip warn">Due in</span>');
   if (sold) {
     const when = deliveryLabel(v);
     const soon = v.delivery_date && dayDiff(v.delivery_date) <= 0;
@@ -607,7 +608,7 @@ function cardHTML(v) {
   const remove = isAdmin() && v.status !== 'delivered' ? `${b('remove', 'Delete', 'ghost danger')}<span class="spacer"></span>` : '';
 
   // Red outline: urgent, going out today (or overdue), or a loan / bodyshop car that's late back
-  const flagged = (sold && (v.urgent || dueToday(v))) || (tab === 'loan' && v.loan_due && dayDiff(v.loan_due) < 0)
+  const flagged = (v.status !== 'delivered' && v.urgent) || (sold && dueToday(v)) || (tab === 'loan' && v.loan_due && dayDiff(v.loan_due) < 0)
     || (tab === 'bodyshop' && v.body_due && dayDiff(v.body_due) < 0);
   return `<article class="card${flagged ? ' urgent' : ''}" data-id="${v.id}">
     <div class="card-head">
@@ -1295,14 +1296,14 @@ function openVehicleForm({ vehicle = null, sold = false, convert = false } = {})
       <label class="pill all"><input type="checkbox" id="svcAll" ${SERVICES.every(s => services.includes(s.key)) ? 'checked' : ''}><span>All</span></label>
       ${SERVICES.map(svcPill).join('')}
     </div></fieldset>
+    <div class="pills">
+      <label class="pill urgent"><input type="checkbox" name="urgent" ${v.urgent ? 'checked' : ''}><span>Urgent</span></label>
+      <label class="pill"><input type="radio" name="stock_status" value="in_stock" ${v.stock_status !== 'due_in' ? 'checked' : ''}><span>On site</span></label>
+      <label class="pill"><input type="radio" name="stock_status" value="due_in" ${v.stock_status === 'due_in' ? 'checked' : ''}><span>Due in</span></label>
+    </div>
     ${canBeSold ? `<label class="pill sold-toggle"><input type="checkbox" id="alreadySold"><span>✓ Already sold — goes to the Sold tab</span></label>` : ''}
     ${soldFields || canBeSold ? `<div id="saleFields" ${soldFields ? '' : 'hidden'}>
       <div class="section-label">Sale</div>
-      <div class="pills">
-        <label class="pill urgent"><input type="checkbox" name="urgent" ${v.urgent ? 'checked' : ''}><span>Urgent</span></label>
-        <label class="pill"><input type="radio" name="stock_status" value="in_stock" ${v.stock_status !== 'due_in' ? 'checked' : ''}><span>On site</span></label>
-        <label class="pill"><input type="radio" name="stock_status" value="due_in" ${v.stock_status === 'due_in' ? 'checked' : ''}><span>Due in</span></label>
-      </div>
       <div class="grid2">
         <label>Delivery date<input type="date" name="delivery_date" value="${esc(v.delivery_date)}"></label>
         <label>Delivery time<input name="delivery_time" value="${esc(v.delivery_time)}" placeholder="e.g. 5PM"></label>
@@ -1375,13 +1376,13 @@ function openVehicleForm({ vehicle = null, sold = false, convert = false } = {})
       color: clean(f.color.value),
       notes: clean(f.notes.value),
       services: SERVICES.filter(s => f[`svc_${s.key}`].checked).map(s => s.key),
+      urgent: f.urgent.checked,
+      stock_status: form.querySelector('[name=stock_status]:checked')?.value ?? 'in_stock',
     };
     if (!row.reg_ie && !row.reg_imp) return showError('Enter at least one registration (IRL or IMP).');
     if (isNew && !row.services.length) return showError('Choose the services this car needs (or tap All).');
     const soldNow = soldFields || !!$('#alreadySold', form)?.checked;
     if (soldNow) Object.assign(row, {
-      urgent: f.urgent.checked,
-      stock_status: form.querySelector('[name=stock_status]:checked')?.value ?? 'in_stock',
       delivery_date: f.delivery_date.value || null,
       delivery_time: clean(f.delivery_time.value),
       seller: clean(f.seller.value),
