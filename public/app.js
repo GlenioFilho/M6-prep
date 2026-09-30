@@ -6,7 +6,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, LOGIN_DOMAIN, VAPID_PUBLIC_KEY } from 
 // ---------------------------------------------------------------------
 // Shown in the help sheet, so anyone can check their phone has the latest app.
 // Keep in step with the ?v= in index.html.
-const APP_VERSION = '47';
+const APP_VERSION = '48';
 const BUCKET = 'vehicle-photos';
 const PURGE_DAYS = 30;
 
@@ -358,7 +358,17 @@ function tabOf(v) {
   if (v.hold === 'loan') return 'loan';
   if (v.hold === 'bodyshop') return 'bodyshop';
   if (isWorking(v)) return 'in_prep';
-  return v.status === 'in_prep' ? 'sold' : 'stock';
+  if (v.status === 'in_prep' && !soldOnArrival(v)) return 'sold';
+  return 'stock';
+}
+
+// A car added already sold ("Already sold" / "Car not in stock") waits at the top
+// of Stock with the cars to wash until its first job starts; then it goes the
+// normal way (In prep → Sold). Cars imported before this existed are left alone.
+const SOLD_ON_ARRIVAL_SINCE = Date.parse('2026-09-30T00:00:00Z');
+function soldOnArrival(v) {
+  const made = Date.parse(v.created_at ?? ''), sold = Date.parse(v.sold_at ?? '');
+  return made >= SOLD_ON_ARRIVAL_SINCE && Math.abs(sold - made) < 5000 && untouched(v);
 }
 
 const isSold = v => v.status === 'in_prep';
@@ -406,7 +416,7 @@ function visibleVehicles() {
   const t = x => new Date(x ?? 0).getTime();
   const due = d => d ?? '9999-12-31';
   const sorts = {
-    stock: (a, b) => (b.urgent - a.urgent) || (workStage(a) - workStage(b)) || (t(b.created_at) - t(a.created_at)),
+    stock: (a, b) => (isSold(b) - isSold(a)) || (b.urgent - a.urgent) || (workStage(a) - workStage(b)) || (t(b.created_at) - t(a.created_at)),
     // Sold cars being worked on first (they're the priority), then by delivery date
     in_prep: (a, b) => (isSold(b) - isSold(a)) || (b.urgent - a.urgent) || due(a.delivery_date).localeCompare(due(b.delivery_date)),
     sold: (a, b) => due(a.delivery_date).localeCompare(due(b.delivery_date)) || (b.urgent - a.urgent)
@@ -1296,12 +1306,13 @@ function openVehicleForm({ vehicle = null, sold = false, convert = false } = {})
       <label class="pill all"><input type="checkbox" id="svcAll" ${SERVICES.every(s => services.includes(s.key)) ? 'checked' : ''}><span>All</span></label>
       ${SERVICES.map(svcPill).join('')}
     </div></fieldset>
+    <div class="section-label">Status</div>
     <div class="pills">
       <label class="pill urgent"><input type="checkbox" name="urgent" ${v.urgent ? 'checked' : ''}><span>Urgent</span></label>
       <label class="pill"><input type="radio" name="stock_status" value="in_stock" ${v.stock_status !== 'due_in' ? 'checked' : ''}><span>On site</span></label>
       <label class="pill"><input type="radio" name="stock_status" value="due_in" ${v.stock_status === 'due_in' ? 'checked' : ''}><span>Due in</span></label>
     </div>
-    ${canBeSold ? `<label class="pill sold-toggle"><input type="checkbox" id="alreadySold"><span>✓ Already sold — goes to the Sold tab</span></label>` : ''}
+    ${canBeSold ? `<label class="pill sold-toggle" style="margin-top:6px"><input type="checkbox" id="alreadySold"><span>✓ Already sold — stays on top of Stock until the first job starts</span></label>` : ''}
     ${soldFields || canBeSold ? `<div id="saleFields" ${soldFields ? '' : 'hidden'}>
       <div class="section-label">Sale</div>
       <div class="grid2">
