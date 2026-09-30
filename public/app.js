@@ -6,7 +6,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, LOGIN_DOMAIN, VAPID_PUBLIC_KEY } from 
 // ---------------------------------------------------------------------
 // Shown in the help sheet, so anyone can check their phone has the latest app.
 // Keep in step with the ?v= in index.html.
-const APP_VERSION = '48';
+const APP_VERSION = '49';
 const BUCKET = 'vehicle-photos';
 const PURGE_DAYS = 30;
 
@@ -226,7 +226,51 @@ async function loadAll() {
   S.me = S.profiles.get(S.session.user.id) ?? null;
   setTeam(t.data);
   S.vehicles = new Map(v.data.map(x => [x.id, x]));
-  await Promise.all([refreshPhotoUrls(), loadSupplies()]);
+  await Promise.all([refreshPhotoUrls(), loadSupplies(), loadMyMonth()]);
+}
+
+// "My cars this month" for people with profiles.show_count: their own finished
+// jobs from the pay-report log (same credit rules as the pay report).
+const monthStart = () => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); };
+async function loadMyMonth() {
+  if (!S.me?.show_count) { S.myMonth = null; return; }
+  const { data, error } = await sb.from('service_completions')
+    .select('service, plate, vehicle, done_at')
+    .eq('user_id', S.me.id).gte('done_at', monthStart().toISOString())
+    .order('done_at', { ascending: false });
+  S.myMonth = error ? null : data;
+}
+let myMonthTimer = null;
+function queueMyMonth() {
+  if (!S.me?.show_count) return;
+  clearTimeout(myMonthTimer);
+  myMonthTimer = setTimeout(async () => { await loadMyMonth(); renderMyMonth(); }, 1500);
+}
+const carsIn = rows => new Set(rows.map(r => `${r.plate}|${r.vehicle}`)).size;
+
+function renderMyMonth() {
+  const btn = $('#myCount');
+  btn.hidden = !S.myMonth;
+  if (!S.myMonth) return;
+  const month = new Date().toLocaleDateString('en-IE', { month: 'long' });
+  const n = carsIn(S.myMonth);
+  btn.innerHTML = `<span class="my-count-num">${n}</span><span>${n === 1 ? 'car' : 'cars'} done in ${esc(month)}</span><span class="my-count-more">See list ›</span>`;
+}
+
+function openMyMonth() {
+  const rows = S.myMonth ?? [];
+  const month = new Date().toLocaleDateString('en-IE', { month: 'long', year: 'numeric' });
+  const per = SERVICES.map(sv => [sv.label, carsIn(rows.filter(r => r.service === sv.key))]).filter(([, n]) => n);
+  openSheet(`${sheetHead(`My cars — ${month}`)}
+    <div class="my-month-total"><strong>${carsIn(rows)}</strong> ${carsIn(rows) === 1 ? 'car' : 'cars'} done this month</div>
+    ${per.length > 1 ? `<p class="muted" style="margin:0 0 10px">${per.map(([l, n]) => `${esc(l)}: <strong>${n}</strong>`).join(' · ')}</p>` : ''}
+    ${rows.length ? `<div class="my-month-list">${rows.map(r => `<div class="my-month-row">
+      <span class="my-month-day">${esc(new Date(r.done_at).toLocaleDateString('en-IE', { weekday: 'short', day: 'numeric', month: 'short' }))}</span>
+      <span><strong>${esc(r.plate || '—')}</strong> ${esc(r.vehicle)}</span>
+      <span class="muted">${esc(SERVICE[r.service]?.label ?? r.service)}</span>
+    </div>`).join('')}</div>` : '<p class="empty">Nothing yet this month.</p>'}
+    <p class="hint">A car counts for the person who started the job. It resets on the 1st of each month.</p>
+    <div class="sheet-actions"><button type="button" class="btn primary" data-close>Close</button></div>`);
 }
 
 // Supplies requested by the team. Loaded separately so the app still works
@@ -278,6 +322,7 @@ function subscribe() {
       if (payload.eventType === 'DELETE') S.vehicles.delete(payload.old.id);
       else upsertLocal(payload.new);
       queueRender();
+      queueMyMonth();
     })
     .on('postgres_changes', { event: '*', schema: 'public', table: 'team_members' }, reloadTeam)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'supplies' }, async () => {
@@ -336,6 +381,7 @@ function renderAll() {
   const needed = (S.supplies ?? []).filter(s => s.status === 'needed').length;
   $('#suppliesBadge').textContent = needed || '';
   $('#suppliesBadge').hidden = !needed;
+  renderMyMonth();
   renderTabs();
   renderList();
   if (S.view === 'team') renderTeam();
@@ -1519,6 +1565,7 @@ function personTags(p) {
   if (p.sold_alerts) tags.push('<span class="tag alerts">🔔 Sold notifications</span>');
   if (p.can_dent) tags.push('<span class="tag dent">Dent</span>');
   if (p.can_bodyshop) tags.push('<span class="tag body">Bodyshop</span>');
+  if (p.show_count) tags.push('<span class="tag">🏁 Counter</span>');
   if (!jobs.length && !p.handles_sold) tags.push('<span class="tag muted">Overview only</span>');
   return tags.join('');
 }
@@ -1570,6 +1617,9 @@ function openPerson(id) {
 
     <div class="section-label">Bodyshop</div>
     ${sw('data-flag="can_bodyshop"', p.can_bodyshop, 'Can use Bodyshop', 'Send cars for panel beating & paint and mark them back.')}
+
+    ${'show_count' in p ? `<div class="section-label">Counter</div>
+    ${sw('data-flag="show_count"', p.show_count, '🏁 My cars this month', 'Shows them how many cars they’ve done this month, with the list.')}` : ''}
 
     <div class="section-label">Access</div>
     ${sw('data-flag="is_admin"', p.is_admin, 'Admin', me ? 'You can’t remove your own admin.' : 'Adds and sells cars, edits, loans, Team and Pay report.', me)}
@@ -2281,6 +2331,7 @@ function wireUi() {
   $('#printBtn').addEventListener('click', printCurrentList);
   $('#photosFab').innerHTML = `${ICON.camera}<span>Photos</span>`;
   $('#photosFab').addEventListener('click', openPhotoPicker);
+  $('#myCount').addEventListener('click', openMyMonth);
   $('#fab').addEventListener('click', () => (S.tab === 'stock' ? openVehicleForm() : openSoldPicker()));
   $('#list').addEventListener('click', onListClick);
 
