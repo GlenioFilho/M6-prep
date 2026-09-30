@@ -6,7 +6,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, LOGIN_DOMAIN, VAPID_PUBLIC_KEY } from 
 // ---------------------------------------------------------------------
 // Shown in the help sheet, so anyone can check their phone has the latest app.
 // Keep in step with the ?v= in index.html.
-const APP_VERSION = '49';
+const APP_VERSION = '50';
 const BUCKET = 'vehicle-photos';
 const PURGE_DAYS = 30;
 
@@ -1565,6 +1565,7 @@ function personTags(p) {
   if (p.sold_alerts) tags.push('<span class="tag alerts">🔔 Sold notifications</span>');
   if (p.can_dent) tags.push('<span class="tag dent">Dent</span>');
   if (p.can_bodyshop) tags.push('<span class="tag body">Bodyshop</span>');
+  if (p.loan_alerts) tags.push('<span class="tag alerts">🔔 Loan returns</span>');
   if (p.show_count) tags.push('<span class="tag">🏁 Counter</span>');
   if (!jobs.length && !p.handles_sold) tags.push('<span class="tag muted">Overview only</span>');
   return tags.join('');
@@ -1611,6 +1612,9 @@ function openPerson(id) {
     <div class="section-label">Sold cars</div>
     ${sw('data-flag="sold_alerts"', p.sold_alerts, '🔔 Sold car notifications', 'Only notifications — no buttons. When prep starts or a car is ready, and the day’s list at 8am.')}
     ${sw('data-flag="handles_sold"', p.handles_sold, 'Start prep / Ready to go buttons', 'Only for the person who prepares sold cars (Ryann). Adds these buttons on every sold car.')}
+
+    ${'loan_alerts' in p ? `<div class="section-label">Loans</div>
+    ${sw('data-flag="loan_alerts"', p.loan_alerts, '🔔 Back from loan notifications', 'A notification when a car comes back from loan, to get it ready again.')}` : ''}
 
     <div class="section-label">Dent</div>
     ${sw('data-flag="can_dent"', p.can_dent, 'Can use Dent', 'Add cars to the Dent list and mark them done.')}

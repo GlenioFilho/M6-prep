@@ -5,6 +5,7 @@
 //   ready_doing { vehicle_id }  prep of a sold car has started   → "sold alerts" people except who started it
 //   ready_done  { vehicle_id }  a sold car is ready to go        → "sold alerts" people except who finished it
 //   morning     {}              8am Dublin: today's deliveries    → "sold alerts" people
+//   loan_returned { vehicle_id } a car is back from loan          → "loan alerts" people except who returned it
 //
 // It trusts nothing in the request except the vehicle id: it reloads the data,
 // checks the event really just happened, and sends each announcement at most
@@ -107,6 +108,23 @@ async function ready(vehicle_id: string, event: "ready_doing" | "ready_done") {
   }, { onlyUsers: await soldAlertUsers(), exceptUser: v.ready_by ?? undefined }));
 }
 
+async function loanReturned(vehicle_id: string) {
+  const { data: v } = await db.from("vehicles").select("*").eq("id", vehicle_id).maybeSingle();
+  if (!v || v.hold === "loan" || v.status === "delivered" || !recent(v.loan_returned_at)) {
+    return json({ skipped: "no such change" });
+  }
+  if (!(await claim(`loan_returned:${vehicle_id}:${v.loan_returned_at}`))) return json({ skipped: "already sent" });
+  const { data: people } = await db.from("profiles").select("id").eq("loan_alerts", true);
+  const who = await nameOf(v.loan_returned_by);
+  const sold = v.status === "in_prep";
+  return json(await send({
+    title: `🔁 Back from loan: ${carOf(v)}`,
+    body: [plateOf(v), `returned by ${who}`, sold ? "prepare it for delivery (sold)" : "prepare it for stock"].join(" · "),
+    url: sold ? "./?tab=sold" : "./?tab=stock",
+    tag: `loan-${v.id}`,
+  }, { onlyUsers: (people ?? []).map((p) => p.id as string), exceptUser: v.loan_returned_by ?? undefined }));
+}
+
 async function morning() {
   const { date, hour } = dublinNow();
   if (hour !== 8) return json({ skipped: `it's ${hour}:00 in Dublin` });
@@ -135,5 +153,6 @@ Deno.serve(async (req) => {
   if (!vehicle_id) return json({ error: "bad request" }, 400);
   if (event === "new_stock") return newStock(vehicle_id);
   if (event === "ready_doing" || event === "ready_done") return ready(vehicle_id, event);
+  if (event === "loan_returned") return loanReturned(vehicle_id);
   return json({ error: "unknown event" }, 400);
 });
