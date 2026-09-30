@@ -579,3 +579,5 @@ table.compact th:last-child, table.compact td:last-child { text-align: left; }
   .grid2 { grid-template-columns: 1fr; }
   .fab span { display: inline; }
 }
+.pill.sold-toggle { align-self: flex-start; }
+.pill.sold-toggle input:checked + span { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }

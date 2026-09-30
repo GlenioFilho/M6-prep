@@ -6,7 +6,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, LOGIN_DOMAIN, VAPID_PUBLIC_KEY } from 
 // ---------------------------------------------------------------------
 // Shown in the help sheet, so anyone can check their phone has the latest app.
 // Keep in step with the ?v= in index.html.
-const APP_VERSION = '43';
+const APP_VERSION = '44';
 const BUCKET = 'vehicle-photos';
 const PURGE_DAYS = 30;
 
@@ -1253,6 +1253,7 @@ function openVehicleForm({ vehicle = null, sold = false, convert = false } = {})
   const v = vehicle ?? {};
   const isNew = !vehicle;
   const soldFields = sold || convert || (vehicle && vehicle.status !== 'stock');
+  const canBeSold = isNew && !sold;  // New stock: "Already sold" shows the sale fields
   const title = convert ? 'Mark as sold' : isNew ? (sold ? 'New sale' : 'New stock vehicle') : 'Edit vehicle';
   const services = isNew ? DEFAULT_SERVICES : v.services;
   const sellers = [...new Set([...S.vehicles.values()].map(x => clean(x.seller)).filter(Boolean))].sort();
@@ -1290,7 +1291,8 @@ function openVehicleForm({ vehicle = null, sold = false, convert = false } = {})
       <label class="pill all"><input type="checkbox" id="svcAll" ${SERVICES.every(s => services.includes(s.key)) ? 'checked' : ''}><span>All</span></label>
       ${SERVICES.map(svcPill).join('')}
     </div></fieldset>
-    ${soldFields ? `
+    ${canBeSold ? `<label class="pill sold-toggle"><input type="checkbox" id="alreadySold"><span>✓ Already sold — goes to the Sold tab</span></label>` : ''}
+    ${soldFields || canBeSold ? `<div id="saleFields" ${soldFields ? '' : 'hidden'}>
       <div class="section-label">Sale</div>
       <div class="pills">
         <label class="pill urgent"><input type="checkbox" name="urgent" ${v.urgent ? 'checked' : ''}><span>Urgent</span></label>
@@ -1306,7 +1308,7 @@ function openVehicleForm({ vehicle = null, sold = false, convert = false } = {})
       <datalist id="sellerList">${sellers.map(s => `<option value="${esc(s)}">`).join('')}</datalist>
       <label>VRT / NCT<input name="vrt_nct" value="${esc(v.vrt_nct)}" placeholder="e.g. done, VRT pending, 12 Oct"></label>
       <label>Mechanical<textarea name="mechanical_notes" rows="2">${esc(v.mechanical_notes)}</textarea></label>
-      <label>Estimate<input name="estimate" value="${esc(v.estimate)}"></label>` : ''}
+      <label>Estimate<input name="estimate" value="${esc(v.estimate)}"></label></div>` : ''}
     <label>Notes<textarea name="notes" rows="2">${esc(v.notes)}</textarea></label>
     <p class="form-error" id="formError" hidden></p>
     <div class="sheet-actions">
@@ -1332,6 +1334,13 @@ function openVehicleForm({ vehicle = null, sold = false, convert = false } = {})
   const allBox = $('#svcAll', form);
   allBox.addEventListener('change', () => svcBoxes.forEach(b => { b.checked = allBox.checked; }));
   svcBoxes.forEach(b => b.addEventListener('change', () => { allBox.checked = svcBoxes.every(x => x.checked); }));
+
+  // Already sold: show the sale fields, and it's a priority (Urgent) unless unticked
+  $('#alreadySold', form)?.addEventListener('change', e => {
+    $('#saleFields', form).hidden = !e.target.checked;
+    form.elements.urgent.checked = e.target.checked;
+    $('#saveBtn', form).textContent = e.target.checked ? 'Save as sold' : 'Save';
+  });
 
   $('#photoInput', form).addEventListener('change', e => {
     const file = e.target.files?.[0];
@@ -1365,7 +1374,8 @@ function openVehicleForm({ vehicle = null, sold = false, convert = false } = {})
     };
     if (!row.reg_ie && !row.reg_imp) return showError('Enter at least one registration (IRL or IMP).');
     if (isNew && !row.services.length) return showError('Choose the services this car needs (or tap All).');
-    if (soldFields) Object.assign(row, {
+    const soldNow = soldFields || !!$('#alreadySold', form)?.checked;
+    if (soldNow) Object.assign(row, {
       urgent: f.urgent.checked,
       stock_status: form.querySelector('[name=stock_status]:checked')?.value ?? 'in_stock',
       delivery_date: f.delivery_date.value || null,
@@ -1375,7 +1385,7 @@ function openVehicleForm({ vehicle = null, sold = false, convert = false } = {})
       mechanical_notes: clean(f.mechanical_notes.value),
       estimate: clean(f.estimate.value),
     });
-    if (isNew) row.status = sold ? 'in_prep' : 'stock';
+    if (isNew) row.status = soldNow ? 'in_prep' : 'stock';
     if (convert) row.status = 'in_prep';
 
     const saveBtn = $('#saveBtn', form);
@@ -1400,12 +1410,12 @@ function openVehicleForm({ vehicle = null, sold = false, convert = false } = {})
       closeSheet();
       if (tabOf(saved) !== S.tab) switchTab(tabOf(saved));
       renderAll();
-      toast(convert ? 'Marked as sold — now in prep' : isNew ? 'Vehicle added' : 'Saved');
+      toast(convert ? 'Marked as sold — now in prep' : isNew ? (soldNow ? 'Sold car added' : 'Vehicle added') : 'Saved');
     } catch (err) {
       if (uploaded) await removePhotos([uploaded]);
       showError(errorText(err));
       saveBtn.disabled = false;
-      saveBtn.textContent = convert ? 'Mark as sold' : 'Save';
+      saveBtn.textContent = convert ? 'Mark as sold' : soldNow && !soldFields ? 'Save as sold' : 'Save';
     }
   });
 }
