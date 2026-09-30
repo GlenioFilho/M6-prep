@@ -6,7 +6,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, LOGIN_DOMAIN, VAPID_PUBLIC_KEY } from 
 // ---------------------------------------------------------------------
 // Shown in the help sheet, so anyone can check their phone has the latest app.
 // Keep in step with the ?v= in index.html.
-const APP_VERSION = '44';
+const APP_VERSION = '45';
 const BUCKET = 'vehicle-photos';
 const PURGE_DAYS = 30;
 
@@ -362,6 +362,10 @@ function tabOf(v) {
 }
 
 const isSold = v => v.status === 'in_prep';
+// No job started or done yet on this car (its first wash comes first)
+const untouched = v => SERVICES.every(s => (v[`${s.key}_state`] ?? 'pending') === 'pending');
+// Stock order: nothing done yet → jobs under way → all done
+const workStage = v => (untouched(v) ? 0 : v.services.length && v.done_at ? 2 : 1);
 const onTab = (v, tab) => (tab === 'dent' ? inDent(v) : tabOf(v) === tab);
 
 function renderTabs() {
@@ -402,7 +406,7 @@ function visibleVehicles() {
   const t = x => new Date(x ?? 0).getTime();
   const due = d => d ?? '9999-12-31';
   const sorts = {
-    stock: (a, b) => t(b.created_at) - t(a.created_at),
+    stock: (a, b) => (workStage(a) - workStage(b)) || (t(b.created_at) - t(a.created_at)),
     // Sold cars being worked on first (they're the priority), then by delivery date
     in_prep: (a, b) => (isSold(b) - isSold(a)) || (b.urgent - a.urgent) || due(a.delivery_date).localeCompare(due(b.delivery_date)),
     sold: (a, b) => due(a.delivery_date).localeCompare(due(b.delivery_date)) || (b.urgent - a.urgent)
@@ -557,6 +561,7 @@ function cardHTML(v) {
   if (inDent(v)) chips.push(`<span class="chip hold">DENT${v.dent_date ? ` · ${esc(dayName(v.dent_date))}` : ''}</span>`);
   if (sold && tab !== 'sold') chips.push('<span class="chip sold">SOLD</span>');
   if (sold && v.urgent) chips.push('<span class="chip urgent">URGENT</span>');
+  if ((tab === 'stock' || tab === 'sold') && untouched(v)) chips.push('<span class="chip new">NEW · NOTHING DONE YET</span>');
   if (sold) {
     const when = deliveryLabel(v);
     const soon = v.delivery_date && dayDiff(v.delivery_date) <= 0;
