@@ -12,6 +12,7 @@
   --pending-bg: #eef0f3;  --pending-fg: #545a63;
   --doing-bg: #fff3d6;    --doing-fg: #8a5a00;   --doing-bd: #f1c75b;
   --done-bg: #e3f5e9;     --done-fg: #16703a;    --done-bd: #7ccc98;
+  --note-bg: #e8f0fe;     --note-fg: #1e3a8a;    --note-bd: #3b82f6;
   --urgent: #d8232a;
   --plate-bg: #ffffff;
   --plate-band: #1d4ed8;
@@ -30,6 +31,7 @@
     --pending-bg: #2a2c31;  --pending-fg: #b6bbc3;
     --doing-bg: #3a2f14;    --doing-fg: #f5c969;   --doing-bd: #7a5d1c;
     --done-bg: #173222;     --done-fg: #7fdca0;    --done-bd: #2f6b45;
+    --note-bg: #16223a;     --note-fg: #c3d6ff;    --note-bd: #4f7fe0;
     --shadow: 0 1px 2px rgba(0,0,0,.4);
     color-scheme: dark;
   }
@@ -245,7 +247,12 @@ main .tabs, main .toolbar { max-width: 900px; margin-left: auto; margin-right: a
 .details div { display: flex; gap: 6px; }
 .details dt { color: var(--muted); min-width: 92px; }
 .details dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.notes { font-size: 13px; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
+.notes {
+  font-size: 14px; font-weight: 500; color: var(--note-fg); background: var(--note-bg);
+  border-left: 3px solid var(--note-bd); border-radius: 8px; padding: 7px 10px;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.notes::before { content: "📝 "; }
 
 /* Services: one bubble each — grey to do, amber in progress, green done */
 .services { display: flex; flex-wrap: wrap; gap: 6px; }
