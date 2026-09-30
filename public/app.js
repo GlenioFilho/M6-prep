@@ -6,7 +6,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, LOGIN_DOMAIN, VAPID_PUBLIC_KEY } from 
 // ---------------------------------------------------------------------
 // Shown in the help sheet, so anyone can check their phone has the latest app.
 // Keep in step with the ?v= in index.html.
-const APP_VERSION = '40';
+const APP_VERSION = '41';
 const BUCKET = 'vehicle-photos';
 const PURGE_DAYS = 30;
 
@@ -592,7 +592,13 @@ function cardHTML(v) {
   if (tab === 'delivered') actions = b('reopen', 'Reopen');
   else if (tab === 'bodyshop') actions = edit + (canBodyshop() ? b('bodyshop', 'Details') + b('release', `${ICON.check} Back from bodyshop`, 'accent') : '');
   else if (tab === 'loan') actions = edit + (isAdmin() ? b('loan', 'Loan details') + b('release', `${ICON.check} Returned`, 'accent') : '');
-  else if (sold) actions = edit + body + dent + readyButtons(v);
+  else if (sold) {
+    // Managers can hand a car over too: going out today / overdue, or ready to go
+    const ryannHasIt = canReady() && v.ready_state === 'done';  // readyButtons already shows Delivered
+    const deliver = isAdmin() && !ryannHasIt && (dueToday(v) || v.ready_state === 'done')
+      ? b('deliver', `${ICON.check} Delivered`, 'accent') : '';
+    actions = edit + body + dent + readyButtons(v) + deliver;
+  }
   else actions = edit + (isAdmin() ? b('loan', 'Loan') : '') + body + dent + (isAdmin() ? b('sell', 'Mark sold', 'primary') : '');
   const remove = isAdmin() && v.status !== 'delivered' ? `${b('remove', 'Remove', 'ghost danger')}<span class="spacer"></span>` : '';
 
