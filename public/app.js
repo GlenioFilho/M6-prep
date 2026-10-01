@@ -6,7 +6,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, LOGIN_DOMAIN, VAPID_PUBLIC_KEY } from 
 // ---------------------------------------------------------------------
 // Shown in the help sheet, so anyone can check their phone has the latest app.
 // Keep in step with the ?v= in index.html.
-const APP_VERSION = '56';
+const APP_VERSION = '57';
 const BUCKET = 'vehicle-photos';
 const PURGE_DAYS = 30;
 
@@ -347,13 +347,14 @@ function tabOf(v) {
   return 'stock';
 }
 
-// A car added already sold ("Already sold" / "Car not in stock") waits at the top
-// of Stock with the cars to wash until its first job starts; then it goes the
-// normal way (In prep → Sold). Cars imported before this existed are left alone.
+// A car added already sold ("Already sold" / "Car not in stock") stays at the top
+// of Stock (SOLD chip) with the cars to wash until all its jobs are done — In prep
+// while someone works on it — and only then moves to Sold. Cars imported before
+// this existed are left alone.
 const SOLD_ON_ARRIVAL_SINCE = Date.parse('2026-09-30T00:00:00Z');
 function soldOnArrival(v) {
   const made = Date.parse(v.created_at ?? ''), sold = Date.parse(v.sold_at ?? '');
-  return made >= SOLD_ON_ARRIVAL_SINCE && Math.abs(sold - made) < 5000 && untouched(v);
+  return made >= SOLD_ON_ARRIVAL_SINCE && Math.abs(sold - made) < 5000 && !v.done_at;
 }
 
 const isSold = v => v.status === 'in_prep';
@@ -1313,7 +1314,7 @@ function openVehicleForm({ vehicle = null, sold = false, convert = false } = {})
       <label class="pill"><input type="radio" name="stock_status" value="in_stock" ${v.stock_status !== 'due_in' ? 'checked' : ''}><span>On site</span></label>
       <label class="pill"><input type="radio" name="stock_status" value="due_in" ${v.stock_status === 'due_in' ? 'checked' : ''}><span>Due in</span></label>
     </div>
-    ${canBeSold ? `<label class="pill sold-toggle" style="margin-top:6px"><input type="checkbox" id="alreadySold"><span>✓ Already sold — stays on top of Stock until the first job starts</span></label>` : ''}
+    ${canBeSold ? `<label class="pill sold-toggle" style="margin-top:6px"><input type="checkbox" id="alreadySold"><span>✓ Already sold — stays on top of Stock until all its jobs are done</span></label>` : ''}
     ${soldFields || canBeSold ? `<div id="saleFields" ${soldFields ? '' : 'hidden'}>
       <div class="section-label">Sale</div>
       <div class="grid2">
@@ -2144,7 +2145,7 @@ const HELP = [
     <p>🔒 A job someone else started or finished is theirs: only they (or a manager) can change it.</p>` },
   { id: 'tabs', title: 'What the tabs mean', tabs: ['stock', 'in_prep', 'sold', 'delivered'], body: `
     <ul><li><b>Sold</b> — sold cars waiting for delivery, by delivery day.</li>
-      <li><b>Stock</b> — cars not sold, nobody working on them. Urgent cars and cars with nothing done yet are on top. A car that arrived <b>already sold</b> waits here (SOLD) until its first job starts.</li>
+      <li><b>Stock</b> — cars not sold, nobody working on them. Urgent cars and cars with nothing done yet are on top. A car that arrived <b>already sold</b> stays here (SOLD) until all its jobs are done, then moves to Sold.</li>
       <li><b>In prep</b> — someone is working on it right now. When the job is done it goes back to Stock (or to Sold).</li>
       <li><b>Bodyshop</b> — out for panel beating & paint.</li>
       <li><b>Dent</b> — the written dent list.</li>
