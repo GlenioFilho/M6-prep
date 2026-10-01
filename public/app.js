@@ -6,7 +6,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, LOGIN_DOMAIN, VAPID_PUBLIC_KEY } from 
 // ---------------------------------------------------------------------
 // Shown in the help sheet, so anyone can check their phone has the latest app.
 // Keep in step with the ?v= in index.html.
-const APP_VERSION = '53';
+const APP_VERSION = '54';
 const BUCKET = 'vehicle-photos';
 const PURGE_DAYS = 30;
 
@@ -122,6 +122,7 @@ function toast(message, { error = false, action = null, ms = 3500 } = {}) {
 
 function errorText(err) {
   const msg = err?.message || String(err);
+  if (/^This job belongs to/.test(msg)) return msg;
   if (err?.code === '42501' || /row-level security|not allowed/i.test(msg)) return 'You don’t have permission to do that.';
   if (/plate_required/.test(msg)) return 'Enter at least one registration.';
   return msg;
@@ -462,6 +463,13 @@ function otherJobsHTML(v) {
 // with "+"; tapping it adds it to the car and starts it.
 const isExtra = (v, key) => !v.services.includes(key) && v[`${key}_state`] === 'pending';
 
+// A job someone else started or finished is theirs: only they or an admin can
+// finish, undo or change it (also enforced in the database, 020_*.sql).
+function jobOwner(v, key) {
+  const by = v[`${key}_by`];
+  return v[`${key}_state`] !== 'pending' && by && by !== S.me?.id && !isAdmin() ? by : null;
+}
+
 // One bubble per service: grey = to do, amber = someone is on it, green ✓ = done.
 function serviceHTML(v, key) {
   const s = SERVICE[key];
@@ -473,10 +481,12 @@ function serviceHTML(v, key) {
   }
   const by = v[`${key}_by`];
   const who = state === 'doing' ? nameOf(by) : state === 'done' ? `${nameOf(by)} · ${fmtDate(v[`${key}_done_at`], false)}` : '';
-  const hint = { pending: 'Tap to start', doing: 'Tap when finished', done: 'Done — tap twice to undo' }[state];
+  const owner = jobOwner(v, key);
+  const hint = owner ? `${nameOf(owner)}’s job — only they or a manager can change it`
+    : { pending: 'Tap to start', doing: 'Tap when finished', done: 'Done — tap twice to undo' }[state];
   const mark = { pending: '<span class="ring"></span>', doing: '<span class="ring half"></span>', done: ICON.check }[state];
-  return `<button type="button" class="svc ${state}" data-act="svc" data-key="${key}" title="${esc(`${s.label} — ${hint}`)}">
-    ${mark}<span class="svc-text"><strong>${esc(s.label)}</strong>${who ? `<small>${esc(who)}</small>` : ''}</span>
+  return `<button type="button" class="svc ${state}${owner ? ' locked' : ''}" data-act="svc" data-key="${key}" title="${esc(`${s.label} — ${hint}`)}">
+    ${mark}<span class="svc-text"><strong>${esc(s.label)}</strong>${who ? `<small>${esc(who)}</small>` : ''}</span>${owner ? `<span class="svc-lock">${ICON.lock}</span>` : ''}
   </button>`;
 }
 
@@ -942,6 +952,8 @@ function followCard(id, tab) {
 
 async function cycleService(v, key, btn) {
   if (!S.me) return;
+  const owner = jobOwner(v, key);
+  if (owner) return toast(`${SERVICE[key].label} is ${nameOf(owner)}’s job — only ${nameOf(owner)} or a manager can change it.`);
   const state = v[`${key}_state`];
   if (state === 'done' && !confirmTap(btn, 'Tap again to reset')) return;
   const next = NEXT_STATE[state];
@@ -2123,7 +2135,8 @@ const HELP = [
       <li><b>✓ Green</b> — done (shows who and when).</li>
       <li><b>+ Faded</b> — not asked for on this car. Tap it to add it and start.</li></ul>
     <p><b>Tap once when you start</b>, <b>tap again when you finish</b>. The job goes in <b>your name</b> — that’s what the pay report counts, so always use your own login.</p>
-    <p>Tapped by mistake on a green one? Tap it twice to undo.</p>` },
+    <p>Tapped by mistake on a green one? Tap it twice to undo.</p>
+    <p>🔒 A job someone else started or finished is theirs: only they (or a manager) can change it.</p>` },
   { id: 'tabs', title: 'What the tabs mean', tabs: ['stock', 'in_prep', 'sold', 'delivered'], body: `
     <ul><li><b>Sold</b> — sold cars waiting for delivery, by delivery day.</li>
       <li><b>Stock</b> — cars not sold, nobody working on them. Urgent cars and cars with nothing done yet are on top. A car that arrived <b>already sold</b> waits here (SOLD) until its first job starts.</li>

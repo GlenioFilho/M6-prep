@@ -587,3 +587,8 @@ table.compact th:last-child, table.compact td:last-child { text-align: left; }
 }
 .training-link small { color: var(--muted); font-size: 12.5px; }
 .training-link:hover { border-color: var(--accent); }
+
+/* Someone else's job: shown, but locked */
+.svc.locked { cursor: default; }
+.svc-lock { display: inline-flex; margin-left: 2px; opacity: .65; }
+.svc-lock svg { width: 13px; height: 13px; }
