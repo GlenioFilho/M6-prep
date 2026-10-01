@@ -6,7 +6,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, LOGIN_DOMAIN, VAPID_PUBLIC_KEY } from 
 // ---------------------------------------------------------------------
 // Shown in the help sheet, so anyone can check their phone has the latest app.
 // Keep in step with the ?v= in index.html.
-const APP_VERSION = '51';
+const APP_VERSION = '52';
 const BUCKET = 'vehicle-photos';
 const PURGE_DAYS = 30;
 
@@ -2084,6 +2084,30 @@ function printSuppliesList() {
 // ---------------------------------------------------------------------
 // Help: a short guide from the "?" button in the corner
 // ---------------------------------------------------------------------
+// Training videos (YouTube): channels checked on 2026-10-01, plus a ready-made
+// YouTube search per service so the list never goes stale.
+const TRAINING_CHANNELS = [
+  ['Forensic Detailing', 'https://www.youtube.com/@ForensicDetailing', 'UK detailer — machine polishing, paint correction, valeting.'],
+  ['Pan The Organizer', 'https://www.youtube.com/@PanTheOrganizer', 'Step by step for beginners: washing, interiors, polishing.'],
+  ['AMMO NYC', 'https://www.youtube.com/@AMMO-NYC', 'Larry Kosilla — pro tips, deep cleans, polishing.'],
+  ['Wilson Auto Detailing', 'https://www.youtube.com/@WilsonAutoDetailing', 'Full details start to finish, products explained.'],
+];
+const TRAINING_SEARCHES = [
+  ['First Clean / Tar Remove', 'car exterior wash tar and iron fallout removal how to'],
+  ['Full Valet', 'full car valet interior and exterior step by step'],
+  ['Polish / Compound', 'how to machine polish a car beginner dual action compound'],
+  ['Window Tint / Dechrome', 'how to dechrome car trim vinyl wrap tutorial'],
+  ['Windscreen', 'how to clean car windscreen streak free inside'],
+];
+const ytSearch = q => `https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`;
+const trainingHTML = () => `
+    <p>Free video lessons on YouTube — they open in the YouTube app.</p>
+    <div class="training">${TRAINING_CHANNELS.map(([name, url, about]) =>
+      `<a class="training-link" href="${url}" target="_blank" rel="noopener"><strong>▶ ${esc(name)}</strong><small>${esc(about)}</small></a>`).join('')}</div>
+    <p style="margin-top:10px"><b>Videos for each job:</b></p>
+    <div class="training">${TRAINING_SEARCHES.map(([job, q]) =>
+      `<a class="training-link" href="${ytSearch(q)}" target="_blank" rel="noopener"><strong>🔎 ${esc(job)}</strong></a>`).join('')}</div>`;
+
 const HELP = [
   { id: 'jobs', title: 'Marking a job', tabs: ['stock', 'in_prep', 'sold'], body: `
     <p>Each service on a car is a bubble:</p>
@@ -2123,6 +2147,7 @@ const HELP = [
     <p><b>+ New stock</b> (Stock tab): plate, make, model, colour, <b>the services the car needs</b> (or <b>All</b>) and Urgent / On site / Due in. Already sold? Tick <b>Already sold</b>.</p>
     <p><b>Mark sold</b> on a stock car, or <b>+ Sold</b> on the Sold tab: pick the delivery date and time.</p>
     <p>The <b>chart icon</b> is the pay report: tap <b>Last week</b> to see who did what.</p>` },
+  { id: 'training', title: '🎓 Training videos', tabs: [], body: trainingHTML() },
   { id: 'phone', title: 'Phone tips', tabs: [], body: `
     <ul><li><b>iPhone:</b> Safari → Share → <b>Add to Home Screen</b>. Open it from the icon.</li>
       <li><b>Notifications:</b> tap your initial (top right) → <b>Enable notifications</b>.</li>

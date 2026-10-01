@@ -578,3 +578,12 @@ table.compact th:last-child, table.compact td:last-child { text-align: left; }
 .my-month-list { display: grid; gap: 6px; margin: 6px 0 10px; }
 .my-month-row { display: grid; grid-template-columns: 92px 1fr auto; gap: 8px; align-items: baseline; padding: 7px 10px; border: 1px solid var(--border); border-radius: 10px; font-size: 13.5px; }
 .my-month-day { color: var(--muted); font-size: 12.5px; }
+
+/* Help → Training videos */
+.training { display: grid; gap: 6px; }
+.training-link {
+  display: grid; gap: 2px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--surface-2); color: var(--text); text-decoration: none;
+}
+.training-link small { color: var(--muted); font-size: 12.5px; }
+.training-link:hover { border-color: var(--accent); }
