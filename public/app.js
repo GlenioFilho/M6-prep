@@ -6,7 +6,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, LOGIN_DOMAIN, VAPID_PUBLIC_KEY } from 
 // ---------------------------------------------------------------------
 // Shown in the help sheet, so anyone can check their phone has the latest app.
 // Keep in step with the ?v= in index.html.
-const APP_VERSION = '54';
+const APP_VERSION = '55';
 const BUCKET = 'vehicle-photos';
 const PURGE_DAYS = 30;
 
@@ -447,16 +447,19 @@ function jobStatusHTML(v) {
   }).join('')}</div>`;
 }
 
-// One quiet line about the jobs this person doesn't see, e.g. "Other jobs: 1 in progress · 2 done"
+// About the jobs this person has no button for: who is working on one right
+// now (so you can see who has the car), then a quiet count, e.g.
+// "◐ Lucas — Polish / Compound" / "Other jobs: 1 done · 2 to do"
 function otherJobsHTML(v) {
-  const hidden = v.services.filter(k => !myServiceKeys().includes(k));
+  const hidden = SERVICES.map(s => s.key).filter(k => !myServiceKeys().includes(k)
+    && (v.services.includes(k) || v[`${k}_state`] !== 'pending'));
   if (!hidden.length) return '';
+  const doing = hidden.filter(k => v[`${k}_state`] === 'doing')
+    .map(k => `<div class="other-doing"><span class="ring half"></span> <strong>${esc(nameOf(v[`${k}_by`]))}</strong> — ${esc(SERVICE[k].label)}</div>`);
   const count = st => hidden.filter(k => v[`${k}_state`] === st).length;
-  const parts = [[count('doing'), 'in progress'], [count('done'), 'done'], [count('pending'), 'to do']]
-    .filter(([n]) => n).map(([n, w]) => `${n} ${w}`);
-  const doing = hidden.filter(k => v[`${k}_state`] === 'doing').map(k => `${SERVICE[k].label} (${nameOf(v[`${k}_by`])})`);
+  const parts = [[count('done'), 'done'], [count('pending'), 'to do']].filter(([n]) => n).map(([n, w]) => `${n} ${w}`);
   const label = myServiceKeys().length ? 'Other jobs' : 'Jobs';
-  return `<div class="other-jobs" title="${esc(doing.length ? `In progress: ${doing.join(', ')}` : '')}">${label}: ${esc(parts.join(' · '))}</div>`;
+  return doing.join('') + (parts.length ? `<div class="other-jobs">${label}: ${esc(parts.join(' · '))}</div>` : '');
 }
 
 // A service this car wasn't asked for (and nobody has touched): shown faded
