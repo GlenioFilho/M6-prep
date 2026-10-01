@@ -6,7 +6,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, LOGIN_DOMAIN, VAPID_PUBLIC_KEY } from 
 // ---------------------------------------------------------------------
 // Shown in the help sheet, so anyone can check their phone has the latest app.
 // Keep in step with the ?v= in index.html.
-const APP_VERSION = '52';
+const APP_VERSION = '53';
 const BUCKET = 'vehicle-photos';
 const PURGE_DAYS = 30;
 
@@ -47,6 +47,8 @@ const ICON = {
   bell: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>',
   // Car silhouette shown where a car has no photo yet
   car: '<svg viewBox="0 0 64 40" fill="currentColor" aria-hidden="true"><path d="M13 28a5 5 0 1 0 10 0 5 5 0 0 0-10 0zm28 0a5 5 0 1 0 10 0 5 5 0 0 0-10 0z" opacity=".9"/><path d="M8.5 27.5C5 27.3 3 25.8 3 23.2v-3.4c0-2 1.3-3.4 3.4-3.9l7.8-1.9 7.2-6.3C23.5 5.9 26 5 29 5h8.6c2.7 0 5 1 6.9 2.9l6.1 6.3 5.6 1.2c2.6.6 4.3 2.6 4.3 5.3v2.9c0 2.4-1.7 3.8-4.6 3.9h-1.2a7 7 0 0 0-13.4 0H23.6a7 7 0 0 0-13.4 0zM24.6 14.4h10.2V8.6h-5.3c-1.9 0-3.4.6-4.8 1.8l-4.6 4zm13.9 0h9.7l-4.4-4.5c-1.2-1.2-2.8-1.9-4.6-1.9h-.7z" opacity=".55"/></svg>',
+  // Play button on a screen: training videos
+  video: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5" width="19" height="14" rx="3.5"/><path d="M10 9.2v5.6l4.8-2.8z" fill="currentColor"/></svg>',
   close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
 };
 
@@ -2108,6 +2110,11 @@ const trainingHTML = () => `
     <div class="training">${TRAINING_SEARCHES.map(([job, q]) =>
       `<a class="training-link" href="${ytSearch(q)}" target="_blank" rel="noopener"><strong>🔎 ${esc(job)}</strong></a>`).join('')}</div>`;
 
+function openTraining() {
+  openSheet(`${sheetHead('🎓 Training videos')}<div class="help-body">${trainingHTML()}</div>
+    <div class="sheet-actions"><button type="button" class="btn primary" data-close>Close</button></div>`);
+}
+
 const HELP = [
   { id: 'jobs', title: 'Marking a job', tabs: ['stock', 'in_prep', 'sold'], body: `
     <p>Each service on a car is a bubble:</p>
@@ -2147,11 +2154,11 @@ const HELP = [
     <p><b>+ New stock</b> (Stock tab): plate, make, model, colour, <b>the services the car needs</b> (or <b>All</b>) and Urgent / On site / Due in. Already sold? Tick <b>Already sold</b>.</p>
     <p><b>Mark sold</b> on a stock car, or <b>+ Sold</b> on the Sold tab: pick the delivery date and time.</p>
     <p>The <b>chart icon</b> is the pay report: tap <b>Last week</b> to see who did what.</p>` },
-  { id: 'training', title: '🎓 Training videos', tabs: [], body: trainingHTML() },
   { id: 'phone', title: 'Phone tips', tabs: [], body: `
     <ul><li><b>iPhone:</b> Safari → Share → <b>Add to Home Screen</b>. Open it from the icon.</li>
       <li><b>Notifications:</b> tap your initial (top right) → <b>Enable notifications</b>.</li>
       <li><b>Password:</b> tap your initial → <b>Change password</b>.</li>
+      <li><b>Training videos:</b> the ▶ button at the top.</li>
       <li>The app updates itself; the version is at the bottom of this help.</li></ul>` },
 ];
 
@@ -2360,6 +2367,8 @@ function wireUi() {
 
   $('#teamBtn').addEventListener('click', () => setView('team'));
   $('#reportBtn').addEventListener('click', () => setView('report'));
+  $('#trainingBtn').innerHTML = ICON.video;
+  $('#trainingBtn').addEventListener('click', openTraining);
   $('#suppliesBtn').insertAdjacentHTML('afterbegin', ICON.box);
   $('#suppliesBtn').addEventListener('click', () => setView('supplies'));
   $('#suppliesView').addEventListener('submit', onSuppliesSubmit);
