@@ -288,8 +288,6 @@ main .tabs, main .toolbar { max-width: 900px; margin-left: auto; margin-right: a
 /* Red "due today" number on the Sold tab */
 .tabs .count.today { background: var(--urgent); color: #fff; margin-left: 3px; font-weight: 700; }
 @media (max-width: 640px) { .tabs .count.today { display: inline-block; margin: 3px 0 0 2px; } .tabs button[data-tab=sold] .count:not(.today) { display: inline-block; } }
-.staff-flags { display: flex; flex-wrap: wrap; gap: 8px 18px; }
-.staff-flags .switch { font-size: 13px; }
 .card.flash { animation: flash 1.8s ease-out; }
 @keyframes flash { 0%, 45% { box-shadow: 0 0 0 3px var(--accent); } 100% { box-shadow: var(--shadow); } }
 /* Team screen: one clean row per person; tap to edit */
@@ -325,11 +323,6 @@ main .tabs, main .toolbar { max-width: 900px; margin-left: auto; margin-right: a
 .setting strong { font-size: 14.5px; }
 .setting small { font-weight: 400; color: var(--muted); font-size: 12.5px; }
 .person-saved { margin: 0; font-size: 13px; min-height: 18px; }
-.staff-card { display: grid; gap: 8px; padding: 10px 0; border-top: 1px solid var(--border); }
-.staff-card:first-of-type { border-top: 0; }
-.pill.small span { padding: 5px 10px; font-size: 12.5px; }
-.staff-sees { font-size: 12.5px; color: var(--muted); }
-.staff-sees strong { color: var(--text); }
 /* Not requested for this car: faded, dashed, "+" — tap to add and start */
 .svc.extra { background: transparent; border-style: dashed; opacity: .6; }
 .svc.extra:hover, .svc.extra:focus-visible { opacity: 1; }
@@ -419,16 +412,6 @@ legend { font-size: 13px; font-weight: 600; color: var(--muted); padding: 0; mar
 .panel p { margin: 0; }
 .badge { font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 6px; background: var(--done-bg); color: var(--done-fg); }
 .badge.grey { background: var(--pending-bg); color: var(--pending-fg); }
-.member-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.member {
-  display: inline-flex; align-items: center; gap: 4px; padding: 4px 4px 4px 10px; border-radius: 999px;
-  background: var(--surface-2); border: 1px solid var(--border); font-size: 14px;
-}
-.member button { border: 0; background: none; cursor: pointer; width: 26px; height: 26px; border-radius: 50%; color: var(--muted); font-size: 16px; }
-.add-row { display: flex; gap: 8px; }
-.add-row select { flex: 1; }
-.staff-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; }
-.staff-row .email { font-size: 12px; color: var(--muted); }
 table { width: 100%; border-collapse: collapse; font-size: 14px; }
 th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); vertical-align: top; }
 th:last-child, td:last-child { text-align: right; }

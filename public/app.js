@@ -6,24 +6,21 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, LOGIN_DOMAIN, VAPID_PUBLIC_KEY } from 
 // ---------------------------------------------------------------------
 // Shown in the help sheet, so anyone can check their phone has the latest app.
 // Keep in step with the ?v= in index.html.
-const APP_VERSION = '50';
+const APP_VERSION = '51';
 const BUCKET = 'vehicle-photos';
 const PURGE_DAYS = 30;
 
+// Keys are stored in the database; labels can change freely. Anyone on staff
+// can mark any service (who/when is recorded by the database).
 const SERVICES = [
-  // Keys are stored in the database; labels can change freely.
-  // role: team allowed to mark it (null = anyone on staff).
-  { key: 'first',      label: 'First Clean / Tar Remove', role: 'firstClean' },
-  { key: 'decrome',    label: 'Window Tint / Dechrome',   role: null },
-  { key: 'polish',     label: 'Polish / Compound',        role: 'polish' },
-  { key: 'full',       label: 'Full Valet',               role: 'fullValet', commission: true },
-  { key: 'windscreen', label: 'Windscreen',               role: null },
-  { key: 'repair',     label: 'Repair / Body Shop',       role: null },
+  { key: 'first',      label: 'First Clean / Tar Remove' },
+  { key: 'decrome',    label: 'Window Tint / Dechrome' },
+  { key: 'polish',     label: 'Polish / Compound' },
+  { key: 'full',       label: 'Full Valet' },
+  { key: 'windscreen', label: 'Windscreen' },
+  { key: 'repair',     label: 'Repair / Body Shop' },
 ];
 const SERVICE = Object.fromEntries(SERVICES.map(s => [s.key, s]));
-const ROLES = SERVICES.filter(s => s.role);
-// New vehicles start with no services: whoever adds the car picks what it needs.
-const DEFAULT_SERVICES = [];
 const NEXT_STATE = { pending: 'doing', doing: 'done', done: 'pending' };
 
 const COLOURS = [
@@ -167,13 +164,15 @@ const S = {
   session: null,
   me: null,                 // current user's profile
   profiles: new Map(),      // id → profile
-  team: Object.fromEntries(ROLES.map(r => [r.role, new Set()])),
   vehicles: new Map(),      // id → row
   photoUrls: new Map(),     // storage path → signed URL
   tab: 'sold',
   view: 'main',
   search: '',
   channel: null,
+  supplies: [],
+  suppliesReady: false,
+  myMonth: null,            // my finished jobs this month (show_count), or null
 };
 
 const configured = !SUPABASE_URL.includes('YOUR-') && !SUPABASE_ANON_KEY.includes('YOUR-');
@@ -204,73 +203,21 @@ const sb = configured
 const isAdmin = () => !!S.me?.is_admin;
 const nameOf = id => S.profiles.get(id)?.display_name || 'Someone';
 
-// Every service is open to everyone on staff (enforced in the database too,
-// see 008_*.sql); who did it and when is still recorded for the pay report.
-function canMark() {
-  return !!S.me;
-}
-
 // ---------------------------------------------------------------------
 // Data
 // ---------------------------------------------------------------------
 async function loadAll() {
-  const [p, t, v] = await Promise.all([
+  const [p, v] = await Promise.all([
     sb.from('profiles').select('*'),
-    sb.from('team_members').select('role, user_id'),
     sb.from('vehicles').select('*'),
   ]);
-  const err = p.error || t.error || v.error;
+  const err = p.error || v.error;
   if (err) throw err;
 
   S.profiles = new Map(p.data.map(x => [x.id, x]));
   S.me = S.profiles.get(S.session.user.id) ?? null;
-  setTeam(t.data);
   S.vehicles = new Map(v.data.map(x => [x.id, x]));
   await Promise.all([refreshPhotoUrls(), loadSupplies(), loadMyMonth()]);
-}
-
-// "My cars this month" for people with profiles.show_count: their own finished
-// jobs from the pay-report log (same credit rules as the pay report).
-const monthStart = () => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); };
-async function loadMyMonth() {
-  if (!S.me?.show_count) { S.myMonth = null; return; }
-  const { data, error } = await sb.from('service_completions')
-    .select('service, plate, vehicle, done_at')
-    .eq('user_id', S.me.id).gte('done_at', monthStart().toISOString())
-    .order('done_at', { ascending: false });
-  S.myMonth = error ? null : data;
-}
-let myMonthTimer = null;
-function queueMyMonth() {
-  if (!S.me?.show_count) return;
-  clearTimeout(myMonthTimer);
-  myMonthTimer = setTimeout(async () => { await loadMyMonth(); renderMyMonth(); }, 1500);
-}
-const carsIn = rows => new Set(rows.map(r => `${r.plate}|${r.vehicle}`)).size;
-
-function renderMyMonth() {
-  const btn = $('#myCount');
-  btn.hidden = !S.myMonth;
-  if (!S.myMonth) return;
-  const month = new Date().toLocaleDateString('en-IE', { month: 'long' });
-  const n = carsIn(S.myMonth);
-  btn.innerHTML = `<span class="my-count-num">${n}</span><span>${n === 1 ? 'car' : 'cars'} done in ${esc(month)}</span><span class="my-count-more">See list ›</span>`;
-}
-
-function openMyMonth() {
-  const rows = S.myMonth ?? [];
-  const month = new Date().toLocaleDateString('en-IE', { month: 'long', year: 'numeric' });
-  const per = SERVICES.map(sv => [sv.label, carsIn(rows.filter(r => r.service === sv.key))]).filter(([, n]) => n);
-  openSheet(`${sheetHead(`My cars — ${month}`)}
-    <div class="my-month-total"><strong>${carsIn(rows)}</strong> ${carsIn(rows) === 1 ? 'car' : 'cars'} done this month</div>
-    ${per.length > 1 ? `<p class="muted" style="margin:0 0 10px">${per.map(([l, n]) => `${esc(l)}: <strong>${n}</strong>`).join(' · ')}</p>` : ''}
-    ${rows.length ? `<div class="my-month-list">${rows.map(r => `<div class="my-month-row">
-      <span class="my-month-day">${esc(new Date(r.done_at).toLocaleDateString('en-IE', { weekday: 'short', day: 'numeric', month: 'short' }))}</span>
-      <span><strong>${esc(r.plate || '—')}</strong> ${esc(r.vehicle)}</span>
-      <span class="muted">${esc(SERVICE[r.service]?.label ?? r.service)}</span>
-    </div>`).join('')}</div>` : '<p class="empty">Nothing yet this month.</p>'}
-    <p class="hint">A car counts for the person who started the job. It resets on the 1st of each month.</p>
-    <div class="sheet-actions"><button type="button" class="btn primary" data-close>Close</button></div>`);
 }
 
 // Supplies requested by the team. Loaded separately so the app still works
@@ -281,16 +228,6 @@ async function loadSupplies() {
     .or(`status.neq.done,updated_at.gte.${since}`).order('requested_at');
   S.supplies = error ? [] : data;
   S.suppliesReady = !error;
-}
-
-function setTeam(rows) {
-  for (const r of ROLES) S.team[r.role] = new Set();
-  for (const row of rows) S.team[row.role]?.add(row.user_id);
-}
-
-async function reloadTeam() {
-  const { data, error } = await sb.from('team_members').select('role, user_id');
-  if (!error) { setTeam(data); renderAll(); }
 }
 
 async function refreshPhotoUrls() {
@@ -324,7 +261,6 @@ function subscribe() {
       queueRender();
       queueMyMonth();
     })
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'team_members' }, reloadTeam)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'supplies' }, async () => {
       await loadSupplies();
       renderAll();
@@ -547,10 +483,10 @@ function detailRow(label, value, html = null) {
 }
 
 // ---------------------------------------------------------------------
-// "Ready to go": the sold-cars person (Profiles → handles_sold) or an admin
-// taps Start prep (the boss gets a notification), then Ready to go when done.
+// "Ready to go": the sold-cars person (profiles.handles_sold, not admins
+// automatically) taps Start prep (people with sold alerts get a notification),
+// then Ready to go when done. Dent / Bodyshop are per-person permissions too.
 // ---------------------------------------------------------------------
-// Only the people marked "Looks after sold cars" (not admins automatically)
 const canReady = () => !!S.me?.handles_sold;
 const canDent = () => !!S.me?.can_dent;
 const canBodyshop = () => !!S.me?.can_bodyshop;
@@ -741,7 +677,7 @@ function dentHTML(list) {
     if (!groups.has(g.key)) groups.set(g.key, { ...g, items: [] });
     groups.get(g.key).items.push(v);
   }
-  const row = v => `<div class="dent-row${isSold(v) && v.urgent ? ' urgent' : ''}" data-id="${v.id}">
+  const row = v => `<div class="dent-row${v.urgent ? ' urgent' : ''}" data-id="${v.id}">
     <div class="dent-car">${plateHTML(v)}
       <span class="vehicle-name">${esc([v.make, v.model].map(clean).filter(Boolean).join(' ') || 'Unknown vehicle')} ${colourHTML(v.color)}</span>
       <span class="dent-where">${esc(whereLabel(v))}</span>
@@ -790,7 +726,7 @@ function listHTML(tab) {
 // ---------------------------------------------------------------------
 const carCell = v => `<strong>${esc([v.make, v.model].map(clean).filter(Boolean).join(' ') || 'Unknown vehicle')}</strong>${clean(v.color) ? `<br>${esc(v.color)}` : ''}`;
 const plateCell = v => [v.reg_ie, v.reg_imp].map(clean).filter(Boolean).map(esc).join('<br>')
-  + (isSold(v) && v.urgent ? '<div class="urgent-tag">URGENT</div>' : '');
+  + (v.urgent && v.status !== 'delivered' ? '<div class="urgent-tag">URGENT</div>' : '');
 
 function jobsCell(v) {
   return SERVICES.filter(s => v.services.includes(s.key)).map(s => {
@@ -1003,7 +939,7 @@ function followCard(id, tab) {
 }
 
 async function cycleService(v, key, btn) {
-  if (!canMark(key)) return;
+  if (!S.me) return;
   const state = v[`${key}_state`];
   if (state === 'done' && !confirmTap(btn, 'Tap again to reset')) return;
   const next = NEXT_STATE[state];
@@ -1209,7 +1145,6 @@ function openPhoto(v) {
   openSheet(`${sheetHead([v.reg_ie, v.reg_imp].filter(Boolean).join(' / '))}<img class="photo-full" src="${esc(url)}" alt="">`);
 }
 
-// "Sold" button: pick a stock car, or add one that was never in stock.
 // Stock → "Photos": tick the cars that need photos and print a list for the day.
 function openPhotoPicker() {
   // Only cars on site (not out on loan or at the bodyshop)
@@ -1275,6 +1210,7 @@ function printPhotoList(cars) {
   });
 }
 
+// "Sold" button: pick a stock car, or add one that was never in stock.
 function openSoldPicker() {
   const sheet = openSheet(`${sheetHead('Which car was sold?')}
     <input type="search" id="pickSearch" placeholder="Search stock by plate, make or model" autocomplete="off">
@@ -1316,7 +1252,7 @@ function openVehicleForm({ vehicle = null, sold = false, convert = false } = {})
   const soldFields = sold || convert || (vehicle && vehicle.status !== 'stock');
   const canBeSold = isNew && !sold;  // New stock: "Already sold" shows the sale fields
   const title = convert ? 'Mark as sold' : isNew ? (sold ? 'New sale' : 'New stock vehicle') : 'Edit vehicle';
-  const services = isNew ? DEFAULT_SERVICES : v.services;
+  const services = isNew ? [] : v.services;  // new cars: pick what they need
   const sellers = [...new Set([...S.vehicles.values()].map(x => clean(x.seller)).filter(Boolean))].sort();
 
   let newFile = null;
@@ -1472,7 +1408,7 @@ function openVehicleForm({ vehicle = null, sold = false, convert = false } = {})
       closeSheet();
       if (tabOf(saved) !== S.tab) switchTab(tabOf(saved));
       renderAll();
-      toast(convert ? 'Marked as sold — now in prep' : isNew ? (soldNow ? 'Sold car added' : 'Vehicle added') : 'Saved');
+      toast(convert ? 'Marked as sold' : isNew ? (soldNow ? 'Sold car added' : 'Vehicle added') : 'Saved');
     } catch (err) {
       if (uploaded) await removePhotos([uploaded]);
       showError(errorText(err));
@@ -1535,7 +1471,7 @@ function openAccount() {
 function openNewPassword() {
   const sheet = openSheet(`<form class="form" id="pwForm">
     ${sheetHead('Choose a new password')}
-    <label>New password<input name="pw" type="password" minlength="8" autocomplete="new-password" required></label>
+    <label>New password<input name="pw" type="password" minlength="6" autocomplete="new-password" required></label>
     <div class="sheet-actions"><button type="submit" class="btn primary">Save password</button></div>
   </form>`);
   $('#pwForm', sheet).onsubmit = async e => {
@@ -1553,9 +1489,14 @@ function openNewPassword() {
 // Team screen: a short list of people (who they are at a glance); tapping one
 // opens their settings. What each setting does:
 //   services     — the jobs they do: they only see those bubbles on the cars
-//                  (nothing ticked = sees every job; purely visual)
+//                  (nothing ticked = a read-only summary; purely visual)
 //   handles_sold — can Start prep / Ready to go / Delivered on sold cars
 //   sold_alerts  — gets prep / ready notifications and the 8am list
+//   loan_alerts  — gets a notification when a car is back from loan
+//   can_dent / can_bodyshop — may use Dent / Bodyshop
+//   show_count   — sees "my cars this month"
+//   is_admin     — adds / sells / edits cars, loans, Team and Pay report
+// The database enforces these too, and only admins can change them.
 function personTags(p) {
   const tags = [];
   if (p.is_admin) tags.push('<span class="tag admin">Admin</span>');
@@ -1706,7 +1647,7 @@ function renderReport() {
         <label>To<input type="date" id="toDate"></label>
       </div>
       <div class="report-actions">
-        <button type="button" class="btn primary" id="printBtn">Print / Save PDF</button>
+        <button type="button" class="btn primary" id="reportPrintBtn">Print / Save PDF</button>
         <button type="button" class="btn" id="csvSummaryBtn">Download summary (Excel)</button>
         <button type="button" class="btn" id="csvListBtn">Download full list (Excel)</button>
       </div>
@@ -1729,7 +1670,7 @@ function renderReport() {
   };
   $('#fromDate').addEventListener('change', onDates);
   $('#toDate').addEventListener('change', onDates);
-  $('#printBtn').addEventListener('click', () => window.print());
+  $('#reportPrintBtn').addEventListener('click', () => window.print());
   $('#csvSummaryBtn').addEventListener('click', exportSummaryCsv);
   $('#csvListBtn').addEventListener('click', exportListCsv);
 
@@ -1853,10 +1794,8 @@ function exportListCsv() {
 }
 
 // ---------------------------------------------------------------------
-// Auth & boot
-// ---------------------------------------------------------------------
-// ---------------------------------------------------------------------
-// Push notifications ("new car in stock")
+// Push notifications (new stock for everyone; sold / loan alerts for the
+// people chosen on the Team screen)
 // ---------------------------------------------------------------------
 const PUSH_BANNER_KEY = 'm6.pushBanner';
 let swReg = null;
@@ -1924,7 +1863,7 @@ async function disablePush() {
 async function turnOnPush() {
   try {
     await enablePush();
-    toast('Notifications on — you’ll hear about new stock');
+    toast('Notifications on for this phone');
   } catch (err) {
     toast(errorText(err), { error: true });
   }
@@ -1941,8 +1880,8 @@ async function syncPush() {
 }
 
 const PUSH_TEXT = {
-  on: 'This phone gets a notification when a car is added to stock.',
-  off: 'Get a notification on this phone when a car is added to stock.',
+  on: 'This phone gets the app’s notifications: new stock, and any alerts set for you.',
+  off: 'Get notifications on this phone: new stock, and any alerts set for you.',
   'needs-install': 'On iPhone, notifications only work from the app on your home screen: in Safari tap Share → Add to Home Screen, then open M6 Prep from the new icon and turn them on here.',
   blocked: 'Notifications are blocked for this app. Allow them in your phone’s settings, then come back here.',
   unsupported: 'This browser can’t receive notifications. Try Chrome on Android or the home-screen app on iPhone.',
@@ -1978,6 +1917,53 @@ async function renderPushBanner() {
     <p>Get a notification when a new car arrives in stock.</p>
     <button type="button" class="btn small primary" data-enable>${status === 'off' ? 'Turn on' : 'How?'}</button>
     <button type="button" class="icon-btn" data-dismiss aria-label="Dismiss">${ICON.close}</button>`;
+}
+
+// ---------------------------------------------------------------------
+// My cars this month (people with profiles.show_count)
+// ---------------------------------------------------------------------
+// Their own finished jobs from the pay-report log (same credit rules as the
+// pay report), refreshed when cars change.
+const monthStart = () => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); };
+async function loadMyMonth() {
+  if (!S.me?.show_count) { S.myMonth = null; return; }
+  const { data, error } = await sb.from('service_completions')
+    .select('service, plate, vehicle, done_at')
+    .eq('user_id', S.me.id).gte('done_at', monthStart().toISOString())
+    .order('done_at', { ascending: false });
+  S.myMonth = error ? null : data;
+}
+let myMonthTimer = null;
+function queueMyMonth() {
+  if (!S.me?.show_count) return;
+  clearTimeout(myMonthTimer);
+  myMonthTimer = setTimeout(async () => { await loadMyMonth(); renderMyMonth(); }, 1500);
+}
+const carsIn = rows => new Set(rows.map(r => `${r.plate}|${r.vehicle}`)).size;
+
+function renderMyMonth() {
+  const btn = $('#myCount');
+  btn.hidden = !S.myMonth;
+  if (!S.myMonth) return;
+  const month = new Date().toLocaleDateString('en-IE', { month: 'long' });
+  const n = carsIn(S.myMonth);
+  btn.innerHTML = `<span class="my-count-num">${n}</span><span>${n === 1 ? 'car' : 'cars'} done in ${esc(month)}</span><span class="my-count-more">See list ›</span>`;
+}
+
+function openMyMonth() {
+  const rows = S.myMonth ?? [];
+  const month = new Date().toLocaleDateString('en-IE', { month: 'long', year: 'numeric' });
+  const per = SERVICES.map(sv => [sv.label, carsIn(rows.filter(r => r.service === sv.key))]).filter(([, n]) => n);
+  openSheet(`${sheetHead(`My cars — ${month}`)}
+    <div class="my-month-total"><strong>${carsIn(rows)}</strong> ${carsIn(rows) === 1 ? 'car' : 'cars'} done this month</div>
+    ${per.length > 1 ? `<p class="muted" style="margin:0 0 10px">${per.map(([l, n]) => `${esc(l)}: <strong>${n}</strong>`).join(' · ')}</p>` : ''}
+    ${rows.length ? `<div class="my-month-list">${rows.map(r => `<div class="my-month-row">
+      <span class="my-month-day">${esc(new Date(r.done_at).toLocaleDateString('en-IE', { weekday: 'short', day: 'numeric', month: 'short' }))}</span>
+      <span><strong>${esc(r.plate || '—')}</strong> ${esc(r.vehicle)}</span>
+      <span class="muted">${esc(SERVICE[r.service]?.label ?? r.service)}</span>
+    </div>`).join('')}</div>` : '<p class="empty">Nothing yet this month.</p>'}
+    <p class="hint">A car counts for the person who started the job. It resets on the 1st of each month.</p>
+    <div class="sheet-actions"><button type="button" class="btn primary" data-close>Close</button></div>`);
 }
 
 // ---------------------------------------------------------------------
@@ -2108,12 +2094,14 @@ const HELP = [
     <p><b>Tap once when you start</b>, <b>tap again when you finish</b>. The job goes in <b>your name</b> — that’s what the pay report counts, so always use your own login.</p>
     <p>Tapped by mistake on a green one? Tap it twice to undo.</p>` },
   { id: 'tabs', title: 'What the tabs mean', tabs: ['stock', 'in_prep', 'sold', 'delivered'], body: `
-    <ul><li><b>Stock</b> — cars not sold, nobody working on them.</li>
+    <ul><li><b>Sold</b> — sold cars waiting for delivery, by delivery day.</li>
+      <li><b>Stock</b> — cars not sold, nobody working on them. Urgent cars and cars with nothing done yet are on top. A car that arrived <b>already sold</b> waits here (SOLD) until its first job starts.</li>
       <li><b>In prep</b> — someone is working on it right now. When the job is done it goes back to Stock (or to Sold).</li>
-      <li><b>Sold</b> — sold cars waiting for delivery, by delivery day. <b>Sold cars come first.</b></li>
+      <li><b>Bodyshop</b> — out for panel beating & paint.</li>
       <li><b>Dent</b> — the written dent list.</li>
       <li><b>Loan</b> — cars lent to customers.</li>
-      <li><b>Delivered</b> — history.</li></ul>` },
+      <li><b>Delivered</b> — history.</li></ul>
+    <p>Swipe left / right on the list to change tab.</p>` },
   { id: 'sold', title: 'Sold cars & the daily sheet', tabs: ['sold'], body: `
     <p>The Sold tab groups cars by delivery day: <b>Overdue</b>, <b>Today</b>, <b>Tomorrow</b>…</p>
     <p>Each morning tap <b>🖨 Print sold list</b> for the day’s job sheet. Work top to bottom and tick ☐ as you go — and tap the job in the app too.</p>
@@ -2127,19 +2115,19 @@ const HELP = [
     <p>When it comes back, tap <b>Back from bodyshop</b> — it returns to Stock or Sold.</p>` },
   { id: 'loan', title: 'Loan cars (managers)', tabs: ['loan'], admin: true, body: `
     <p>Tap <b>Loan</b> on a stock car, enter the customer’s name, phone and the day it comes back. It moves to the <b>Loan</b> tab (red when overdue).</p>
-    <p>When it’s back, tap <b>Returned</b>.</p>` },
+    <p>When it’s back, tap <b>Returned</b> — the people set for loan alerts get a notification to get it ready again.</p>` },
   { id: 'supplies', title: 'Asking for supplies', tabs: [], body: `
     <p>Tap the <b>box icon</b> at the top, write what you need and how many, and tap <b>Add to list</b>.</p>
     <p>The manager marks it <b>Ordered</b>, and <b>Got it</b> when it arrives. They can print the list with <b>🖨 Print supplies list</b>.</p>` },
   { id: 'admin', title: 'Adding & selling cars (managers)', tabs: ['stock'], admin: true, body: `
-    <p><b>+ New stock</b> (Stock tab): plate, make, model, colour and <b>the services the car needs</b> (or <b>All</b>).</p>
+    <p><b>+ New stock</b> (Stock tab): plate, make, model, colour, <b>the services the car needs</b> (or <b>All</b>) and Urgent / On site / Due in. Already sold? Tick <b>Already sold</b>.</p>
     <p><b>Mark sold</b> on a stock car, or <b>+ Sold</b> on the Sold tab: pick the delivery date and time.</p>
     <p>The <b>chart icon</b> is the pay report: tap <b>Last week</b> to see who did what.</p>` },
   { id: 'phone', title: 'Phone tips', tabs: [], body: `
     <ul><li><b>iPhone:</b> Safari → Share → <b>Add to Home Screen</b>. Open it from the icon.</li>
-      <li><b>Notifications:</b> tap your initial (top right) → <b>Enable notifications</b> to hear about new stock.</li>
+      <li><b>Notifications:</b> tap your initial (top right) → <b>Enable notifications</b>.</li>
       <li><b>Password:</b> tap your initial → <b>Change password</b>.</li>
-      <li>Something looks old? Close the app and open it again.</li></ul>` },
+      <li>The app updates itself; the version is at the bottom of this help.</li></ul>` },
 ];
 
 function openHelp() {
@@ -2152,6 +2140,9 @@ function openHelp() {
     <p class="muted" style="font-size:13px;margin:14px 0 0">Still stuck? Ask the manager. · App version ${esc(APP_VERSION)}</p>`);
 }
 
+// ---------------------------------------------------------------------
+// Swipe between tabs
+// ---------------------------------------------------------------------
 // Phones: swipe left / right to go to the next / previous tab. The list
 // follows the finger and the neighbouring tab slides in beside it; let go past
 // a quarter of the screen (or flick) to switch, otherwise it springs back.
@@ -2225,6 +2216,9 @@ function wireSwipeTabs() {
   }, { passive: true });
 }
 
+// ---------------------------------------------------------------------
+// Auth & boot
+// ---------------------------------------------------------------------
 function switchTab(tab) {
   S.tab = tab;
   try { localStorage.setItem('m6.tab', tab); } catch {}
