@@ -13,8 +13,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <!-- Bump ?v= after changing these files so phones load the new version -->
-  <link rel="stylesheet" href="styles.css?v=55">
-  <script type="module" src="app.js?v=55"></script>
+  <link rel="stylesheet" href="styles.css?v=56">
+  <script type="module" src="app.js?v=56"></script>
 </head>
 <body>
   <!-- Shown until config.js is filled in -->
@@ -69,7 +69,10 @@
       <div id="pushBanner" class="push-banner" hidden></div>
       <button id="myCount" class="my-count" type="button" hidden></button>
       <div class="toolbar">
-        <input id="search" type="search" placeholder="Search plate, make, model, salesperson" autocomplete="off">
+        <div class="search-box">
+          <input id="search" type="search" placeholder="Search plate, make, model, salesperson" autocomplete="off">
+          <button id="searchClear" class="search-clear" type="button" aria-label="Clear search" title="Clear search" hidden></button>
+        </div>
         <button id="printBtn" type="button" class="btn small" hidden>🖨 Print list</button>
         <button id="purgeBtn" type="button" class="btn ghost danger small admin-only" hidden>Delete records older than 30 days</button>
       </div>

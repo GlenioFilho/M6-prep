@@ -6,7 +6,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, LOGIN_DOMAIN, VAPID_PUBLIC_KEY } from 
 // ---------------------------------------------------------------------
 // Shown in the help sheet, so anyone can check their phone has the latest app.
 // Keep in step with the ?v= in index.html.
-const APP_VERSION = '55';
+const APP_VERSION = '56';
 const BUCKET = 'vehicle-photos';
 const PURGE_DAYS = 30;
 
@@ -381,7 +381,7 @@ function renderTabs() {
   badge.title = `${today} to deliver today`;
   $('#purgeBtn').hidden = S.tab !== 'delivered';
   const print = $('#printBtn');
-  print.hidden = !['sold', 'dent', 'loan', 'bodyshop'].includes(S.tab);
+  print.hidden = !isAdmin() || !['sold', 'dent', 'loan', 'bodyshop'].includes(S.tab);
   print.textContent = `🖨 Print ${TAB_TITLE[S.tab]?.toLowerCase()} list`;
   const fab = $('#fab');
   // Adding stock and recording sales are admin-only (also enforced in the database)
@@ -885,6 +885,7 @@ function printBodyshopList() {
 }
 
 function printCurrentList() {
+  if (!isAdmin()) return;
   ({ sold: printSoldList, dent: printDentList, loan: printLoanList, bodyshop: printBodyshopList })[S.tab]?.();
 }
 
@@ -941,6 +942,7 @@ function announceMove(before, after) {
 function followCard(id, tab) {
   S.search = '';
   $('#search').value = '';
+  $('#searchClear').hidden = true;
   switchTab(tab);
   requestAnimationFrame(() => {
     const card = document.querySelector(`.card[data-id="${id}"]`);
@@ -2038,7 +2040,7 @@ function renderSupplies() {
       </div>
       <div class="sheet-actions" style="position:static"><button type="submit" class="btn primary">${ICON.plus} Add to list</button></div>
     </form>
-    <div class="report-actions no-print"><button type="button" class="btn" id="printSuppliesBtn">🖨 Print supplies list</button></div>
+    ${isAdmin() ? '<div class="report-actions no-print"><button type="button" class="btn" id="printSuppliesBtn">🖨 Print supplies list</button></div>' : ''}
     ${section('needed', 'Needed', 'Nothing needed right now. 👍')}
     ${section('ordered', 'Ordered', 'Nothing on order.')}
     ${section('done', 'Got it (last 14 days)', 'Nothing received recently.')}`;
@@ -2151,12 +2153,12 @@ const HELP = [
     <p>Swipe left / right on the list to change tab.</p>` },
   { id: 'sold', title: 'Sold cars & the daily sheet', tabs: ['sold'], body: `
     <p>The Sold tab groups cars by delivery day: <b>Overdue</b>, <b>Today</b>, <b>Tomorrow</b>…</p>
-    <p>Each morning tap <b>🖨 Print sold list</b> for the day’s job sheet. Work top to bottom and tick ☐ as you go — and tap the job in the app too.</p>
+    <p>Each morning the manager prints the day’s job sheet (<b>🖨 Print sold list</b>). Work top to bottom and tick ☐ as you go — and tap the job in the app too.</p>
     <p>Cars going out <b>today</b> have a red outline, and the red number on the Sold tab says how many.</p>
     <p><b>Delivery prep</b> (the sold-cars person): tap <b>▶ Start prep</b> when you take the car — the boss gets a notification — and <b>✓ Ready to go</b> when it’s done. When the customer takes it, tap <b>Delivered</b>.</p>` },
   { id: 'dent', title: 'Dent list', tabs: ['dent'], body: `
     <p>Tap <b>Dent</b> on a car, write what needs fixing and pick the <b>dent day</b>. The car stays where it is — it’s just added to the list.</p>
-    <p>On the day, open the <b>Dent</b> tab and tap <b>🖨 Print dent list</b>. When a car is fixed, tap <b>Done</b>.</p>` },
+    <p>On the day, the manager prints the list from the <b>Dent</b> tab. When a car is fixed, tap <b>Done</b>.</p>` },
   { id: 'bodyshop', title: 'Bodyshop', tabs: ['bodyshop'], body: `
     <p>When a car goes out for panel beating & paint, tap <b>Bodyshop</b> on it, write what’s being done, which bodyshop and when it’s due back. It moves to the <b>Bodyshop</b> tab (red when overdue).</p>
     <p>When it comes back, tap <b>Back from bodyshop</b> — it returns to Stock or Sold.</p>` },
@@ -2165,7 +2167,7 @@ const HELP = [
     <p>When it’s back, tap <b>Returned</b> — the people set for loan alerts get a notification to get it ready again.</p>` },
   { id: 'supplies', title: 'Asking for supplies', tabs: [], body: `
     <p>Tap the <b>box icon</b> at the top, write what you need and how many, and tap <b>Add to list</b>.</p>
-    <p>The manager marks it <b>Ordered</b>, and <b>Got it</b> when it arrives. They can print the list with <b>🖨 Print supplies list</b>.</p>` },
+    <p>The manager marks it <b>Ordered</b>, and <b>Got it</b> when it arrives. The manager can print the list.</p>` },
   { id: 'admin', title: 'Adding & selling cars (managers)', tabs: ['stock'], admin: true, body: `
     <p><b>+ New stock</b> (Stock tab): plate, make, model, colour, <b>the services the car needs</b> (or <b>All</b>) and Urgent / On site / Due in. Already sold? Tick <b>Already sold</b>.</p>
     <p><b>Mark sold</b> on a stock car, or <b>+ Sold</b> on the Sold tab: pick the delivery date and time.</p>
@@ -2372,7 +2374,16 @@ function wireUi() {
     const b = e.target.closest('[data-tab]');
     if (b) { switchTab(b.dataset.tab); window.scrollTo(0, 0); }
   });
-  $('#search').addEventListener('input', e => { S.search = e.target.value; renderList(); });
+  const showClear = () => { $('#searchClear').hidden = !S.search; };
+  $('#search').addEventListener('input', e => { S.search = e.target.value; showClear(); renderList(); });
+  $('#searchClear').innerHTML = ICON.close;
+  $('#searchClear').addEventListener('click', () => {
+    S.search = '';
+    $('#search').value = '';
+    showClear();
+    renderList();
+    $('#search').focus();
+  });
   $('#purgeBtn').addEventListener('click', purgeOld);
   $('#printBtn').addEventListener('click', printCurrentList);
   $('#photosFab').innerHTML = `${ICON.camera}<span>Photos</span>`;
