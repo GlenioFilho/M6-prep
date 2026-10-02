@@ -6,7 +6,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, LOGIN_DOMAIN, VAPID_PUBLIC_KEY } from 
 // ---------------------------------------------------------------------
 // Shown in the help sheet, so anyone can check their phone has the latest app.
 // Keep in step with the ?v= in index.html.
-const APP_VERSION = '57';
+const APP_VERSION = '58';
 const BUCKET = 'vehicle-photos';
 const PURGE_DAYS = 30;
 
@@ -61,6 +61,16 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const clean = v => String(v ?? '').trim();
 const plate = v => clean(v).toUpperCase().replace(/\s+/g, ' ');
 const norm = v => String(v ?? '').toLowerCase().replace(/[\s-]/g, '');
+// Same plate whatever the spaces / dashes / case: "221-D-20541" = "221d20541"
+const plateKey = v => String(v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+// Another car (not delivered) already in the app with one of these plates
+function samePlateCar(regs, exceptId) {
+  const keys = regs.map(plateKey).filter(Boolean);
+  if (!keys.length) return null;
+  return [...S.vehicles.values()].find(x => x.id !== exceptId && x.status !== 'delivered'
+    && [x.reg_ie, x.reg_imp].some(r => keys.includes(plateKey(r)))) ?? null;
+}
 
 function fmtDate(ts, withTime = true) {
   if (!ts) return '';
@@ -125,6 +135,7 @@ function errorText(err) {
   if (/^This job belongs to/.test(msg)) return msg;
   if (err?.code === '42501' || /row-level security|not allowed/i.test(msg)) return 'You don’t have permission to do that.';
   if (/plate_required/.test(msg)) return 'Enter at least one registration.';
+  if (/duplicate_plate/.test(msg)) return msg.replace(/^.*duplicate_plate:\s*/, '');
   return msg;
 }
 
@@ -1393,6 +1404,14 @@ function openVehicleForm({ vehicle = null, sold = false, convert = false } = {})
       stock_status: form.querySelector('[name=stock_status]:checked')?.value ?? 'in_stock',
     };
     if (!row.reg_ie && !row.reg_imp) return showError('Enter at least one registration (IRL or IMP).');
+    // (an existing car keeping its plates isn't checked again)
+    const samePlates = !isNew && plateKey(row.reg_ie) === plateKey(v.reg_ie) && plateKey(row.reg_imp) === plateKey(v.reg_imp);
+    const twin = samePlates ? null : samePlateCar([row.reg_ie, row.reg_imp], v.id);
+    if (twin) {
+      const name = [twin.make, twin.model].map(clean).filter(Boolean).join(' ') || 'A car';
+      const plates = [twin.reg_ie, twin.reg_imp].map(clean).filter(Boolean).join(' / ');
+      return showError(`${name} (${plates}) is already in the app — ${TAB_TITLE[tabOf(twin)]} tab. Use that one instead of adding it again.`);
+    }
     if (isNew && !row.services.length) return showError('Choose the services this car needs (or tap All).');
     const soldNow = soldFields || !!$('#alreadySold', form)?.checked;
     if (soldNow) Object.assign(row, {
