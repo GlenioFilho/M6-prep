@@ -6,7 +6,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, LOGIN_DOMAIN, VAPID_PUBLIC_KEY } from 
 // ---------------------------------------------------------------------
 // Shown in the help sheet, so anyone can check their phone has the latest app.
 // Keep in step with the ?v= in index.html.
-const APP_VERSION = '64';
+const APP_VERSION = '65';
 const BUCKET = 'vehicle-photos';
 const PURGE_DAYS = 30;
 
@@ -1645,13 +1645,14 @@ async function savePerson(id, input) {
 // ---------------------------------------------------------------------
 // Pay report (admin)
 // ---------------------------------------------------------------------
+// Opens on this month (1st → last day); weeks are still one tap away
 const REPORT_PRESETS = [
-  ['this-week', 'This week'],
-  ['last-week', 'Last week'],
   ['this-month', 'This month'],
   ['last-month', 'Last month'],
+  ['this-week', 'This week'],
+  ['last-week', 'Last week'],
 ];
-const report = { preset: 'this-week', start: null, end: null, rows: [] };
+const report = { preset: 'this-month', start: null, end: null, rows: [] };
 // Only Full Valet is paid per car, so the report counts only that service
 // (the other jobs are still recorded in service_completions).
 const PAY_SERVICES = SERVICES.filter(s => s.key === 'full');
@@ -1717,7 +1718,7 @@ function renderReport() {
     if (btn) clearPersonRecords(btn.dataset.clearPerson, btn);
   });
 
-  setReportPreset(report.preset || 'this-week');
+  setReportPreset(report.preset || 'this-month');
 }
 
 function setReportPreset(preset) {
