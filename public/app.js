@@ -6,7 +6,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, LOGIN_DOMAIN, VAPID_PUBLIC_KEY } from 
 // ---------------------------------------------------------------------
 // Shown in the help sheet, so anyone can check their phone has the latest app.
 // Keep in step with the ?v= in index.html.
-const APP_VERSION = '62';
+const APP_VERSION = '63';
 const BUCKET = 'vehicle-photos';
 const PURGE_DAYS = 30;
 
@@ -49,6 +49,7 @@ const ICON = {
   car: '<svg viewBox="0 0 64 40" fill="currentColor" aria-hidden="true"><path d="M13 28a5 5 0 1 0 10 0 5 5 0 0 0-10 0zm28 0a5 5 0 1 0 10 0 5 5 0 0 0-10 0z" opacity=".9"/><path d="M8.5 27.5C5 27.3 3 25.8 3 23.2v-3.4c0-2 1.3-3.4 3.4-3.9l7.8-1.9 7.2-6.3C23.5 5.9 26 5 29 5h8.6c2.7 0 5 1 6.9 2.9l6.1 6.3 5.6 1.2c2.6.6 4.3 2.6 4.3 5.3v2.9c0 2.4-1.7 3.8-4.6 3.9h-1.2a7 7 0 0 0-13.4 0H23.6a7 7 0 0 0-13.4 0zM24.6 14.4h10.2V8.6h-5.3c-1.9 0-3.4.6-4.8 1.8l-4.6 4zm13.9 0h9.7l-4.4-4.5c-1.2-1.2-2.8-1.9-4.6-1.9h-.7z" opacity=".55"/></svg>',
   // Play button on a screen: training videos
   video: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5" width="19" height="14" rx="3.5"/><path d="M10 9.2v5.6l4.8-2.8z" fill="currentColor"/></svg>',
+  trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg>',
   close: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
 };
 
@@ -1727,6 +1728,11 @@ function renderReport() {
   $('#csvSummaryBtn').addEventListener('click', exportSummaryCsv);
   $('#csvListBtn').addEventListener('click', exportListCsv);
 
+  $('#reportBody').addEventListener('click', e => {
+    const btn = e.target.closest('[data-clear-person]');
+    if (btn) clearPersonRecords(btn.dataset.clearPerson, btn);
+  });
+
   if (report.preset || !report.start) setReportPreset(report.preset || 'this-week');
   else loadReport();
 }
@@ -1756,6 +1762,23 @@ async function loadReport() {
   drawReport();
 }
 
+// 🗑 on a person: delete their Full Valet records for the period on screen
+// (admins only, also in the database — 022_*.sql). No undo, so two taps.
+async function clearPersonRecords(id, btn) {
+  if (!isAdmin()) return;
+  const name = nameOf(id);
+  const n = report.rows.filter(r => r.user_id === id).length;
+  if (!confirmTap(btn, `Delete ${plural(n, 'car')}? Tap again`)) return;
+  const { data, error } = await sb.from('service_completions').delete()
+    .eq('user_id', id).in('service', PAY_SERVICES.map(s => s.key))
+    .gte('done_at', report.start.toISOString()).lt('done_at', report.end.toISOString())
+    .select('id');
+  if (error) return toast(errorText(error), { error: true });
+  if (!data.length) return toast('Nothing was deleted — run 022_admin_clear_pay_records.sql in Supabase first.', { error: true });
+  toast(`Deleted ${plural(data.length, 'record')} for ${name}`);
+  loadReport();
+}
+
 // One entry per person: their cars and count per service.
 // The Full Valet team = people with Full Valet ticked as their job on the Team
 // screen (Marcelo, Rimmas). They're always listed, even with 0 cars; Full
@@ -1765,7 +1788,7 @@ const payTeam = () => [...S.profiles.values()]
 
 function reportPeople() {
   const people = new Map();
-  for (const p of payTeam()) people.set(p.id, { name: p.display_name, items: [], counts: {} });
+  for (const p of payTeam()) people.set(p.id, { id: p.id, name: p.display_name, items: [], counts: {} });
   for (const r of report.rows) {
     if (!people.has(r.user_id)) continue;
     const p = people.get(r.user_id);
@@ -1808,6 +1831,7 @@ function drawReport() {
         <thead><tr><th>Service</th><th>Cars</th></tr></thead>
         <tbody>${lines}</tbody>
       </table>
+      <div class="car-list-row">
       <details class="car-list">
         <summary>Cars done (${p.items.length})</summary>
         <table class="compact">
@@ -1817,6 +1841,9 @@ function drawReport() {
             <td>${esc(i.vehicle)}</td><td>${esc(SERVICE[i.service]?.label ?? i.service)}</td></tr>`).join('')}</tbody>
         </table>
       </details>
+      ${p.items.length ? `<button type="button" class="icon-btn trash-btn no-print" data-clear-person="${p.id}"
+        title="Delete ${esc(p.name)}’s records for this period" aria-label="Delete ${esc(p.name)}’s records for this period">${ICON.trash}</button>` : ''}
+      </div>
     </div>`;
   };
 
