@@ -6,7 +6,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, LOGIN_DOMAIN, VAPID_PUBLIC_KEY } from 
 // ---------------------------------------------------------------------
 // Shown in the help sheet, so anyone can check their phone has the latest app.
 // Keep in step with the ?v= in index.html.
-const APP_VERSION = '63';
+const APP_VERSION = '64';
 const BUCKET = 'vehicle-photos';
 const PURGE_DAYS = 30;
 
@@ -1689,10 +1689,6 @@ function renderReport() {
       <h2>Period</h2>
       <div class="presets" id="presets">${REPORT_PRESETS.map(([k, label]) =>
         `<button type="button" class="btn small" data-preset="${k}">${label}</button>`).join('')}</div>
-      <div class="grid2">
-        <label>From<input type="date" id="fromDate"></label>
-        <label>To<input type="date" id="toDate"></label>
-      </div>
       <div class="report-actions">
         <button type="button" class="btn primary" id="reportPrintBtn">Print / Save PDF</button>
         <button type="button" class="btn" id="csvSummaryBtn">Download summary (Excel)</button>
@@ -1705,18 +1701,6 @@ function renderReport() {
     const b = e.target.closest('[data-preset]');
     if (b) setReportPreset(b.dataset.preset);
   });
-  const onDates = () => {
-    const from = $('#fromDate').value, to = $('#toDate').value;
-    if (!from || !to) return;
-    let start = startOfDay(new Date(`${from}T00:00`)), last = startOfDay(new Date(`${to}T00:00`));
-    if (last < start) [start, last] = [last, start];
-    report.preset = null;
-    report.start = start;
-    report.end = addDays(last, 1);
-    loadReport();
-  };
-  $('#fromDate').addEventListener('change', onDates);
-  $('#toDate').addEventListener('change', onDates);
   // Lists are closed on screen; open them all for the printout, then close again
   $('#reportPrintBtn').addEventListener('click', () => {
     const closed = $$('#reportBody details:not([open])');
@@ -1733,8 +1717,7 @@ function renderReport() {
     if (btn) clearPersonRecords(btn.dataset.clearPerson, btn);
   });
 
-  if (report.preset || !report.start) setReportPreset(report.preset || 'this-week');
-  else loadReport();
+  setReportPreset(report.preset || 'this-week');
 }
 
 function setReportPreset(preset) {
@@ -1745,8 +1728,6 @@ function setReportPreset(preset) {
 
 async function loadReport() {
   for (const b of $$('#presets [data-preset]')) b.classList.toggle('primary', b.dataset.preset === report.preset);
-  $('#fromDate').value = inputDate(report.start);
-  $('#toDate').value = inputDate(addDays(report.end, -1));
   $('#reportBody').innerHTML = '<p class="empty">Loading…</p>';
 
   const { data, error } = await sb.from('service_completions')
