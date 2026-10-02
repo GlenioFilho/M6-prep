@@ -6,7 +6,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, LOGIN_DOMAIN, VAPID_PUBLIC_KEY } from 
 // ---------------------------------------------------------------------
 // Shown in the help sheet, so anyone can check their phone has the latest app.
 // Keep in step with the ?v= in index.html.
-const APP_VERSION = '68';
+const APP_VERSION = '69';
 const BUCKET = 'vehicle-photos';
 const PURGE_DAYS = 30;
 
@@ -33,7 +33,7 @@ const COLOUR_HEX = Object.fromEntries(COLOURS.map(([n, h]) => [n.toLowerCase(), 
 
 // Tabs are views, not the database status (see tabOf): the DB status
 // 'in_prep' means "sold, not delivered yet".
-const TAB_TITLE = { stock: 'Stock', in_prep: 'In prep', sold: 'Sold', bodyshop: 'Bodyshop', dent: 'Dent', loan: 'Loan', delivered: 'Delivered' };
+const TAB_TITLE = { stock: 'Stock', in_prep: 'In prep', sold: 'Deliveries', bodyshop: 'Bodyshop', dent: 'Dent', loan: 'Loan', delivered: 'Delivered' };
 
 const ICON = {
   back: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>',
@@ -1010,7 +1010,7 @@ async function setStatus(v, status, { undo = false } = {}) {
     if (status === 'delivered') {
       toast('Marked as delivered', undo ? { action: { label: 'Undo', run: () => setStatus(v, 'in_prep') } } : {});
     } else {
-      toast('Moved back to Sold');
+      toast('Moved back to Deliveries');
     }
   } catch (err) { toast(errorText(err), { error: true }); }
 }
@@ -2190,25 +2190,25 @@ const HELP = [
     <p>Tapped by mistake on a green one? Tap it twice to undo.</p>
     <p>🔒 A job someone else started or finished is theirs: only they (or a manager) can change it.</p>` },
   { id: 'tabs', title: 'What the tabs mean', tabs: ['stock', 'in_prep', 'sold', 'delivered'], body: `
-    <ul><li><b>Sold</b> — sold cars waiting for delivery, by delivery day.</li>
-      <li><b>Stock</b> — cars not sold, nobody working on them. Urgent cars, then cars waiting for <b>your</b> job, then cars with nothing done yet are on top. A car that arrived <b>already sold</b> stays here (SOLD) until all its jobs are done, then moves to Sold.</li>
-      <li><b>In prep</b> — someone is working on it right now. When the job is done it goes back to Stock (or to Sold).</li>
+    <ul><li><b>Deliveries</b> — sold cars waiting for delivery, by delivery day.</li>
+      <li><b>Stock</b> — cars not sold, nobody working on them. Urgent cars, then cars waiting for <b>your</b> job, then cars with nothing done yet are on top. A car that arrived <b>already sold</b> stays here (SOLD) until all its jobs are done, then moves to Deliveries.</li>
+      <li><b>In prep</b> — someone is working on it right now. When the job is done it goes back to Stock (or to Deliveries).</li>
       <li><b>Bodyshop</b> — out for panel beating & paint.</li>
       <li><b>Dent</b> — the written dent list.</li>
       <li><b>Loan</b> — cars lent to customers.</li>
       <li><b>Delivered</b> — history.</li></ul>
     <p>Swipe left / right on the list to change tab.</p>` },
   { id: 'sold', title: 'Sold cars & the daily sheet', tabs: ['sold'], body: `
-    <p>The Sold tab groups cars by delivery day: <b>Overdue</b>, <b>Today</b>, <b>Tomorrow</b>…</p>
-    <p>Each morning the manager prints the day’s job sheet (<b>🖨 Print sold list</b>). Work top to bottom and tick ☐ as you go — and tap the job in the app too.</p>
-    <p>Cars going out <b>today</b> have a red outline, and the red number on the Sold tab says how many.</p>
+    <p>The Deliveries tab groups the sold cars by delivery day: <b>Overdue</b>, <b>Today</b>, <b>Tomorrow</b>…</p>
+    <p>Each morning the manager prints the day’s job sheet (<b>🖨 Print deliveries list</b>). Work top to bottom and tick ☐ as you go — and tap the job in the app too.</p>
+    <p>Cars going out <b>today</b> have a red outline, and the red number on the Deliveries tab says how many.</p>
     <p><b>Delivery prep</b> (the sold-cars person): tap <b>▶ Start prep</b> when you take the car — the boss gets a notification — and <b>✓ Ready to go</b> when it’s done. When the customer takes it, tap <b>Delivered</b>.</p>` },
   { id: 'dent', title: 'Dent list', tabs: ['dent'], body: `
     <p>Tap <b>Dent</b> on a car, write what needs fixing and pick the <b>dent day</b>. The car stays where it is — it’s just added to the list.</p>
     <p>On the day, the manager prints the list from the <b>Dent</b> tab. When a car is fixed, tap <b>Done</b>.</p>` },
   { id: 'bodyshop', title: 'Bodyshop', tabs: ['bodyshop'], body: `
     <p>When a car goes out for panel beating & paint, tap <b>Bodyshop</b> on it, write what’s being done, which bodyshop and when it’s due back. It moves to the <b>Bodyshop</b> tab (red when overdue).</p>
-    <p>When it comes back, tap <b>Back from bodyshop</b> — it returns to Stock or Sold.</p>` },
+    <p>When it comes back, tap <b>Back from bodyshop</b> — it returns to Stock or Deliveries.</p>` },
   { id: 'loan', title: 'Loan cars (managers)', tabs: ['loan'], admin: true, body: `
     <p>Tap <b>Loan</b> on a stock car, enter the customer’s name, phone and the day it comes back. It moves to the <b>Loan</b> tab (red when overdue).</p>
     <p>When it’s back, tap <b>Returned</b> — the people set for loan alerts get a notification to get it ready again.</p>` },
@@ -2217,7 +2217,7 @@ const HELP = [
     <p>The manager marks it <b>Ordered</b>, and <b>Got it</b> when it arrives. The manager can print the list.</p>` },
   { id: 'admin', title: 'Adding & selling cars (managers)', tabs: ['stock'], admin: true, body: `
     <p><b>+ New stock</b> (Stock tab): plate, make, model, colour, <b>the services the car needs</b> (or <b>All</b>) and Urgent / On site / Due in. Already sold? Tick <b>Already sold</b>.</p>
-    <p><b>Mark sold</b> on a stock car, or <b>+ Sold</b> on the Sold tab: pick the delivery date and time.</p>
+    <p><b>Mark sold</b> on a stock car, or <b>+ Sold</b> on the Deliveries tab: pick the delivery date and time.</p>
     <p>The <b>chart icon</b> is the pay report: tap <b>Last week</b> to see who did what.</p>` },
   { id: 'phone', title: 'Phone tips', tabs: [], body: `
     <ul><li><b>iPhone:</b> Safari → Share → <b>Add to Home Screen</b>. Open it from the icon.</li>
