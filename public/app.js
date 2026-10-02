@@ -6,7 +6,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, LOGIN_DOMAIN, VAPID_PUBLIC_KEY } from 
 // ---------------------------------------------------------------------
 // Shown in the help sheet, so anyone can check their phone has the latest app.
 // Keep in step with the ?v= in index.html.
-const APP_VERSION = '67';
+const APP_VERSION = '68';
 const BUCKET = 'vehicle-photos';
 const PURGE_DAYS = 30;
 
@@ -18,9 +18,10 @@ const SERVICES = [
   { key: 'polish',     label: 'Polish / Compound' },
   { key: 'full',       label: 'Full Valet' },
   { key: 'windscreen', label: 'Windscreen' },
-  { key: 'repair',     label: 'Repair / Body Shop' },
 ];
-const SERVICE = Object.fromEntries(SERVICES.map(s => [s.key, s]));
+// No longer offered (the Bodyshop tab replaced it); kept only to name old records.
+const RETIRED_SERVICES = [{ key: 'repair', label: 'Repair / Body Shop' }];
+const SERVICE = Object.fromEntries([...SERVICES, ...RETIRED_SERVICES].map(s => [s.key, s]));
 const NEXT_STATE = { pending: 'doing', doing: 'done', done: 'pending' };
 
 const COLOURS = [
@@ -347,7 +348,7 @@ function renderAll() {
 // service "doing") is In prep; otherwise it's Sold or Stock.
 // Dent is NOT a place: it's a written to-do list (dent_since set) — the car
 // stays in its own tab and also appears on the Dent list.
-const isWorking = v => v.services.some(k => v[`${k}_state`] === 'doing');
+const isWorking = v => SERVICES.some(s => v.services.includes(s.key) && v[`${s.key}_state`] === 'doing');
 const inDent = v => !!v.dent_since && v.status !== 'delivered';
 
 function tabOf(v) {
