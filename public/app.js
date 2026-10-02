@@ -6,7 +6,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, LOGIN_DOMAIN, VAPID_PUBLIC_KEY } from 
 // ---------------------------------------------------------------------
 // Shown in the help sheet, so anyone can check their phone has the latest app.
 // Keep in step with the ?v= in index.html.
-const APP_VERSION = '58';
+const APP_VERSION = '59';
 const BUCKET = 'vehicle-photos';
 const PURGE_DAYS = 30;
 
@@ -373,6 +373,8 @@ const isSold = v => v.status === 'in_prep';
 const untouched = v => SERVICES.every(s => (v[`${s.key}_state`] ?? 'pending') === 'pending');
 // Stock order: nothing done yet → jobs under way → all done
 const workStage = v => (untouched(v) ? 0 : v.services.length && v.done_at ? 2 : 1);
+// The car is waiting for one of MY jobs (asked for on it and still to do)
+const needsMe = v => myServiceKeys().some(k => v.services.includes(k) && v[`${k}_state`] === 'pending');
 const onTab = (v, tab) => (tab === 'dent' ? inDent(v) : tabOf(v) === tab);
 
 function renderTabs() {
@@ -413,7 +415,9 @@ function visibleVehicles() {
   const t = x => new Date(x ?? 0).getTime();
   const due = d => d ?? '9999-12-31';
   const sorts = {
-    stock: (a, b) => (isSold(b) - isSold(a)) || (b.urgent - a.urgent) || (workStage(a) - workStage(b)) || (t(b.created_at) - t(a.created_at)),
+    // Sold first, then urgent, then cars waiting for my job, then nothing done → under way → all done
+    stock: (a, b) => (isSold(b) - isSold(a)) || (b.urgent - a.urgent) || (needsMe(b) - needsMe(a))
+      || (workStage(a) - workStage(b)) || (t(b.created_at) - t(a.created_at)),
     // Sold cars being worked on first (they're the priority), then by delivery date
     in_prep: (a, b) => (isSold(b) - isSold(a)) || (b.urgent - a.urgent) || due(a.delivery_date).localeCompare(due(b.delivery_date)),
     sold: (a, b) => due(a.delivery_date).localeCompare(due(b.delivery_date)) || (b.urgent - a.urgent)
@@ -2164,7 +2168,7 @@ const HELP = [
     <p>🔒 A job someone else started or finished is theirs: only they (or a manager) can change it.</p>` },
   { id: 'tabs', title: 'What the tabs mean', tabs: ['stock', 'in_prep', 'sold', 'delivered'], body: `
     <ul><li><b>Sold</b> — sold cars waiting for delivery, by delivery day.</li>
-      <li><b>Stock</b> — cars not sold, nobody working on them. Urgent cars and cars with nothing done yet are on top. A car that arrived <b>already sold</b> stays here (SOLD) until all its jobs are done, then moves to Sold.</li>
+      <li><b>Stock</b> — cars not sold, nobody working on them. Urgent cars, then cars waiting for <b>your</b> job, then cars with nothing done yet are on top. A car that arrived <b>already sold</b> stays here (SOLD) until all its jobs are done, then moves to Sold.</li>
       <li><b>In prep</b> — someone is working on it right now. When the job is done it goes back to Stock (or to Sold).</li>
       <li><b>Bodyshop</b> — out for panel beating & paint.</li>
       <li><b>Dent</b> — the written dent list.</li>
