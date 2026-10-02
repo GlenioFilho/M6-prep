@@ -6,7 +6,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, LOGIN_DOMAIN, VAPID_PUBLIC_KEY } from 
 // ---------------------------------------------------------------------
 // Shown in the help sheet, so anyone can check their phone has the latest app.
 // Keep in step with the ?v= in index.html.
-const APP_VERSION = '61';
+const APP_VERSION = '62';
 const BUCKET = 'vehicle-photos';
 const PURGE_DAYS = 30;
 
@@ -1757,14 +1757,18 @@ async function loadReport() {
 }
 
 // One entry per person: their cars and count per service.
+// The Full Valet team = people with Full Valet ticked as their job on the Team
+// screen (Marcelo, Rimmas). They're always listed, even with 0 cars; Full
+// Valets marked by anyone else aren't paid and don't show.
+const payTeam = () => [...S.profiles.values()]
+  .filter(p => PAY_SERVICES.some(s => (p.services ?? []).includes(s.key)));
+
 function reportPeople() {
   const people = new Map();
+  for (const p of payTeam()) people.set(p.id, { name: p.display_name, items: [], counts: {} });
   for (const r of report.rows) {
-    const key = r.user_id ?? `name:${r.user_name}`;
-    if (!people.has(key)) {
-      people.set(key, { name: S.profiles.get(r.user_id)?.display_name || r.user_name || 'Unknown', items: [], counts: {} });
-    }
-    const p = people.get(key);
+    if (!people.has(r.user_id)) continue;
+    const p = people.get(r.user_id);
     p.items.push(r);
     p.counts[r.service] = (p.counts[r.service] ?? 0) + 1;
   }
@@ -1775,24 +1779,24 @@ function drawReport() {
   const body = $('#reportBody');
   if (!body) return;
   const people = reportPeople();
-  const totals = Object.fromEntries(PAY_SERVICES.map(s => [s.key, report.rows.filter(r => r.service === s.key).length]));
+  const totals = Object.fromEntries(PAY_SERVICES.map(s => [s.key, people.reduce((n, p) => n + (p.counts[s.key] ?? 0), 0)]));
 
   const head = `<div class="panel report-head">
     <h2>Pay report</h2>
     <p class="period">${esc(periodLabel())}</p>
     <div class="stat-row">${PAY_SERVICES.map(s => `<div class="stat"><strong>${totals[s.key]}</strong><span>${esc(s.label)}</span></div>`).join('')}</div>
-    <p class="muted how">Full Valet only. Each person below shows how many cars they finished in this period and the list of those cars.
+    <p class="muted how">Full Valet only, for the Full Valet team (people with Full Valet as their job on the Team screen). Each person below shows how many cars they finished in this period and the list of those cars.
       A car counts on the day its service was marked <strong>Done</strong>, by the person credited for it.</p>
   </div>`;
 
   if (!people.length) {
-    body.innerHTML = head + '<p class="empty">No Full Valets were completed in this period.</p>';
+    body.innerHTML = head + '<p class="empty">Nobody has Full Valet as their job yet — tick it for them on the Team screen.</p>';
     return;
   }
 
   const personBlock = p => {
-    const lines = PAY_SERVICES.filter(s => p.counts[s.key]).map(s => {
-      const n = p.counts[s.key];
+    const lines = PAY_SERVICES.map(s => {
+      const n = p.counts[s.key] ?? 0;
       return `<tr><td>${esc(s.label)}</td><td>${n} car${n === 1 ? '' : 's'}</td></tr>`;
     }).join('');
     return `<div class="panel person">
@@ -1834,7 +1838,7 @@ const reportFileTag = () => `${inputDate(report.start)}_to_${inputDate(addDays(r
 function exportSummaryCsv() {
   const rows = [['Period', 'Team member', 'Service', 'Cars']];
   for (const p of reportPeople()) {
-    for (const s of PAY_SERVICES.filter(s => p.counts[s.key])) rows.push([periodLabel(), p.name, s.label, p.counts[s.key]]);
+    for (const s of PAY_SERVICES) rows.push([periodLabel(), p.name, s.label, p.counts[s.key] ?? 0]);
   }
   downloadCsv(`m6-pay-summary_${reportFileTag()}.csv`, rows);
 }
