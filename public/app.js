@@ -6,7 +6,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, LOGIN_DOMAIN, VAPID_PUBLIC_KEY } from 
 // ---------------------------------------------------------------------
 // Shown in the help sheet, so anyone can check their phone has the latest app.
 // Keep in step with the ?v= in index.html.
-const APP_VERSION = '59';
+const APP_VERSION = '60';
 const BUCKET = 'vehicle-photos';
 const PURGE_DAYS = 30;
 
@@ -1713,7 +1713,14 @@ function renderReport() {
   };
   $('#fromDate').addEventListener('change', onDates);
   $('#toDate').addEventListener('change', onDates);
-  $('#reportPrintBtn').addEventListener('click', () => window.print());
+  // Lists are closed on screen; open them all for the printout, then close again
+  $('#reportPrintBtn').addEventListener('click', () => {
+    const closed = $$('#reportBody details:not([open])');
+    closed.forEach(d => { d.open = true; });
+    const done = () => { closed.forEach(d => { d.open = false; }); window.removeEventListener('afterprint', done); };
+    window.addEventListener('afterprint', done);
+    window.print();
+  });
   $('#csvSummaryBtn').addEventListener('click', exportSummaryCsv);
   $('#csvListBtn').addEventListener('click', exportListCsv);
 
@@ -1793,7 +1800,7 @@ function drawReport() {
         <thead><tr><th>Service</th><th>Cars</th></tr></thead>
         <tbody>${lines}</tbody>
       </table>
-      <details class="car-list" open>
+      <details class="car-list">
         <summary>Cars done (${p.items.length})</summary>
         <table class="compact">
           <thead><tr><th>Date</th><th>Plate</th><th>Car</th><th>Service</th></tr></thead>
