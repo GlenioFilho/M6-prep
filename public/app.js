@@ -6,7 +6,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, LOGIN_DOMAIN, VAPID_PUBLIC_KEY } from 
 // ---------------------------------------------------------------------
 // Shown in the help sheet, so anyone can check their phone has the latest app.
 // Keep in step with the ?v= in index.html.
-const APP_VERSION = '66';
+const APP_VERSION = '67';
 const BUCKET = 'vehicle-photos';
 const PURGE_DAYS = 30;
 
@@ -1235,12 +1235,11 @@ function printPhotoList(cars) {
   printDoc({
     title: 'Photos', summary: plural(cars.length, 'car'),
     how: 'Tick ☐ when the photos of a car are done.',
-    columns: ['Plate', 'Car', 'Colour', 'Notes', 'Photos done'],
+    columns: ['Plate', 'Car', 'Colour', 'Photos done'],
     rows: cars.map(v => ({ cells: [
       { html: plateCell(v), cls: 'plate-cell' },
       { html: `<strong>${esc([v.make, v.model].map(clean).filter(Boolean).join(' ') || 'Unknown vehicle')}</strong>` },
       { html: esc(v.color || '—') },
-      { html: esc(v.notes || ''), cls: 'notes-cell' },
       { html: '<span class="tick">☐</span>' },
     ] })),
   });
