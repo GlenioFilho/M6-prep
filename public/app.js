@@ -6,7 +6,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, LOGIN_DOMAIN, VAPID_PUBLIC_KEY } from 
 // ---------------------------------------------------------------------
 // Shown in the help sheet, so anyone can check their phone has the latest app.
 // Keep in step with the ?v= in index.html.
-const APP_VERSION = '60';
+const APP_VERSION = '61';
 const BUCKET = 'vehicle-photos';
 const PURGE_DAYS = 30;
 
@@ -1651,6 +1651,9 @@ const REPORT_PRESETS = [
   ['last-month', 'Last month'],
 ];
 const report = { preset: 'this-week', start: null, end: null, rows: [] };
+// Only Full Valet is paid per car, so the report counts only that service
+// (the other jobs are still recorded in service_completions).
+const PAY_SERVICES = SERVICES.filter(s => s.key === 'full');
 
 const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
 const startOfDay = d => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
@@ -1742,6 +1745,7 @@ async function loadReport() {
 
   const { data, error } = await sb.from('service_completions')
     .select('service, user_id, user_name, plate, vehicle, done_at')
+    .in('service', PAY_SERVICES.map(s => s.key))
     .gte('done_at', report.start.toISOString()).lt('done_at', report.end.toISOString())
     .order('done_at');
   if (error) {
@@ -1771,23 +1775,23 @@ function drawReport() {
   const body = $('#reportBody');
   if (!body) return;
   const people = reportPeople();
-  const totals = Object.fromEntries(SERVICES.map(s => [s.key, report.rows.filter(r => r.service === s.key).length]));
+  const totals = Object.fromEntries(PAY_SERVICES.map(s => [s.key, report.rows.filter(r => r.service === s.key).length]));
 
   const head = `<div class="panel report-head">
     <h2>Pay report</h2>
     <p class="period">${esc(periodLabel())}</p>
-    <div class="stat-row">${SERVICES.map(s => `<div class="stat"><strong>${totals[s.key]}</strong><span>${esc(s.label)}</span></div>`).join('')}</div>
-    <p class="muted how">Each person below shows how many cars they finished in this period and the list of those cars.
+    <div class="stat-row">${PAY_SERVICES.map(s => `<div class="stat"><strong>${totals[s.key]}</strong><span>${esc(s.label)}</span></div>`).join('')}</div>
+    <p class="muted how">Full Valet only. Each person below shows how many cars they finished in this period and the list of those cars.
       A car counts on the day its service was marked <strong>Done</strong>, by the person credited for it.</p>
   </div>`;
 
   if (!people.length) {
-    body.innerHTML = head + '<p class="empty">No services were completed in this period.</p>';
+    body.innerHTML = head + '<p class="empty">No Full Valets were completed in this period.</p>';
     return;
   }
 
   const personBlock = p => {
-    const lines = SERVICES.filter(s => p.counts[s.key]).map(s => {
+    const lines = PAY_SERVICES.filter(s => p.counts[s.key]).map(s => {
       const n = p.counts[s.key];
       return `<tr><td>${esc(s.label)}</td><td>${n} car${n === 1 ? '' : 's'}</td></tr>`;
     }).join('');
@@ -1830,7 +1834,7 @@ const reportFileTag = () => `${inputDate(report.start)}_to_${inputDate(addDays(r
 function exportSummaryCsv() {
   const rows = [['Period', 'Team member', 'Service', 'Cars']];
   for (const p of reportPeople()) {
-    for (const s of SERVICES.filter(s => p.counts[s.key])) rows.push([periodLabel(), p.name, s.label, p.counts[s.key]]);
+    for (const s of PAY_SERVICES.filter(s => p.counts[s.key])) rows.push([periodLabel(), p.name, s.label, p.counts[s.key]]);
   }
   downloadCsv(`m6-pay-summary_${reportFileTag()}.csv`, rows);
 }
