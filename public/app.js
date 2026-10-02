@@ -6,7 +6,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, LOGIN_DOMAIN, VAPID_PUBLIC_KEY } from 
 // ---------------------------------------------------------------------
 // Shown in the help sheet, so anyone can check their phone has the latest app.
 // Keep in step with the ?v= in index.html.
-const APP_VERSION = '65';
+const APP_VERSION = '66';
 const BUCKET = 'vehicle-photos';
 const PURGE_DAYS = 30;
 
@@ -1648,7 +1648,6 @@ async function savePerson(id, input) {
 // Opens on this month (1st → last day); weeks are still one tap away
 const REPORT_PRESETS = [
   ['this-month', 'This month'],
-  ['last-month', 'Last month'],
   ['this-week', 'This week'],
   ['last-week', 'Last week'],
 ];
