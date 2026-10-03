@@ -616,3 +616,7 @@ table.compact th:last-child, table.compact td:last-child { text-align: left; }
 }
 .search-clear svg { width: 16px; height: 16px; }
 .search-clear:hover { color: var(--text); }
+
+/* Floating buttons step aside while scrolling down (wireFabHide) */
+.fab-row, .help-fab { transition: transform .22s ease, opacity .22s ease; }
+body.fabs-away .fab-row, body.fabs-away .help-fab { transform: translateY(140%); opacity: 0; pointer-events: none; }

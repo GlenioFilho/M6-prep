@@ -6,7 +6,7 @@ import { SUPABASE_URL, SUPABASE_ANON_KEY, LOGIN_DOMAIN, VAPID_PUBLIC_KEY } from 
 // ---------------------------------------------------------------------
 // Shown in the help sheet, so anyone can check their phone has the latest app.
 // Keep in step with the ?v= in index.html.
-const APP_VERSION = '69';
+const APP_VERSION = '70';
 const BUCKET = 'vehicle-photos';
 const PURGE_DAYS = 30;
 
@@ -2417,6 +2417,7 @@ function wireUi() {
   if (savedLogin) loginFields.login.value = savedLogin;
 
   wireSwipeTabs();
+  wireFabHide();
   $('.tabs').addEventListener('click', e => {
     const b = e.target.closest('[data-tab]');
     if (b) { switchTab(b.dataset.tab); window.scrollTo(0, 0); }
@@ -2457,6 +2458,26 @@ function wireUi() {
     if (e.target.id === 'sheetBackdrop' || e.target.closest('[data-close]')) closeSheet();
   });
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#sheetBackdrop').hidden) closeSheet(); });
+}
+
+// Floating buttons (Photos / New stock / Sold / ?) slide away while you scroll
+// down the list so they don't sit on top of the cards, and come back as soon as
+// you scroll up or reach the top / bottom.
+function wireFabHide() {
+  let lastY = window.scrollY;
+  let ticking = false;
+  window.addEventListener('scroll', () => {
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(() => {
+      ticking = false;
+      const y = window.scrollY;
+      const atBottom = window.innerHeight + y >= document.documentElement.scrollHeight - 40;
+      if (y < 80 || atBottom || y < lastY - 6) document.body.classList.remove('fabs-away');
+      else if (y > lastY + 6) document.body.classList.add('fabs-away');
+      if (Math.abs(y - lastY) > 6) lastY = y;
+    });
+  }, { passive: true });
 }
 
 // Header clock: "14:05" over "Mon 28 Sept"
